@@ -1,6 +1,6 @@
-# coptichymns
+# Everything Coptic
 
-A new Flutter project.
+A multilingual Coptic Orthodox liturgical app with advanced Firebase integration for authentication, content management, and offline-first experience.
 
 ## Getting Started
 
