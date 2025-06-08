@@ -34,5 +34,26 @@
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
+  <!-- Firebase App (the core Firebase SDK) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+
+<script>
+  // Your web app's Firebase configuration
+  var firebaseConfig = {
+    apiKey: "AIzaSyBSbO7wUFy_uRn8noBkCpUaHYuSc_p3Tcs",
+    authDomain: "everything-coptic.firebaseapp.com",
+    projectId: "everything-coptic",
+    storageBucket: "everything-coptic.firebasestorage.app",
+    messagingSenderId: "630989426042",
+    appId: "1:630989426042:web:1f2020c3833d90b396dac3",
+    measurementId: "G-F2XK3Q37KY"
+  };
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+</script>
 </body>
 </html>
