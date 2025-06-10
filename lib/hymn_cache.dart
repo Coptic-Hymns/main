@@ -17,8 +17,11 @@ class IsarHymn {
   DateTime? updatedAt;
 
   // Accessors to parse JSON strings when needed
+  @ignore
   Map<String, String> get titleMap => Map<String, String>.from(jsonDecode(titleJson));
+  @ignore
   List<Map<String, String>> get blocksList => List<Map<String, String>>.from(jsonDecode(blocksJson));
+  @ignore
   List<String> get tagsList => List<String>.from(jsonDecode(tagsJson));
 
   static IsarHymn fromFirestore(String id, Map<String, dynamic> data) {
