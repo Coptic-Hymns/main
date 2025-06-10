@@ -15,10 +15,95 @@ import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'hymn_cache.dart';
 import 'hymn_cache.g.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+// Top-level function for background message handling
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(); // Ensure Firebase is initialized for background messages
+  // You can perform heavy data fetching or other logic here
+  print('Handling a background message: ${message.messageId}');
+  // For simplicity, just show a local notification
+  _showLocalNotification(message);
+}
+
+// Shared function to show local notification
+Future<void> _showLocalNotification(RemoteMessage message) async {
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+  const AndroidNotificationDetails androidPlatformChannelSpecifics = AndroidNotificationDetails(
+    'high_importance_channel', // id
+    'High Importance Notifications', // name
+    channelDescription: 'This channel is used for important notifications.',
+    importance: Importance.max,
+    priority: Priority.high,
+    ticker: 'ticker',
+  );
+  const NotificationDetails platformChannelSpecifics = NotificationDetails(
+    android: androidPlatformChannelSpecifics,
+    iOS: DarwinNotificationDetails(), // Use default iOS settings
+  );
+
+  await flutterLocalNotificationsPlugin.show(
+    message.hashCode, // Notification ID
+    message.notification?.title,
+    message.notification?.body,
+    platformChannelSpecifics,
+    payload: message.data['payload'],
+  );
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+
+  // Initialize Flutter Local Notifications
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+  const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('app_icon'); // Ensure you have app_icon.png in android/app/src/main/res/drawable/
+  const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings();
+  const InitializationSettings initializationSettings = InitializationSettings(
+    android: initializationSettingsAndroid,
+    iOS: initializationSettingsIOS,
+  );
+  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+  // Request FCM permissions
+  NotificationSettings settings = await FirebaseMessaging.instance.requestPermission(
+    alert: true,
+    announcement: false,
+    badge: true,
+    carPlay: false,
+    criticalAlert: false,
+    provisional: false,
+    sound: true,
+  );
+
+  if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+    print('User granted permission');
+    // Get FCM token (optional, but good for testing and targeted notifications)
+    String? token = await FirebaseMessaging.instance.getToken();
+    print('FCM Token: $token');
+
+    // Handle foreground messages
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      print('Got a message whilst in the foreground!');
+      print('Message data: ${message.data}');
+      _showLocalNotification(message);
+    });
+
+    // Handle background messages (when app is in background but not terminated)
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+    // Handle messages when app is terminated or in background and user taps notification
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      print('A new onMessageOpenedApp event was published!');
+      // TODO: Handle navigation based on notification payload
+    });
+  } else {
+    print('User declined or has not accepted permission');
+  }
+
   runApp(const EverythingCopticApp());
 }
 
@@ -1819,6 +1904,8 @@ class _NotificationsTabState extends State<_NotificationsTab> {
   }
 
   Future<void> _sendNow(DocumentSnapshot notification) async {
+    // TODO: Call a Cloud Function to send actual push notification
+    // For now, simulate success
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notification sent! (Simulated)')));
   }
 
