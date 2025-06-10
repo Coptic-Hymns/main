@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'hymn_cache.dart';
+import 'hymn_cache.g.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -222,7 +223,7 @@ class _MainHomeState extends State<MainHome> {
   bool _showAdminModal = false;
   List<String> _selectedLangs = ['en', 'cop', 'ar'];
   String _search = '';
-  DocumentSnapshot? _selectedHymn;
+  Map<String, dynamic>? _selectedHymnData;
   bool _showSlideshow = false;
   bool _offline = false;
   List<IsarHymn>? _isarHymns;
@@ -252,17 +253,45 @@ class _MainHomeState extends State<MainHome> {
     setState(() {
       _isarStream = _isar!.isarHymns.where().watch(fireImmediately: true);
     });
+    _cacheHymnsFromFirestore();
   }
 
   void _setupConnectivity() {
-    // Simple connectivity check using Firestore
     FirebaseFirestore.instance
         .collection('hymns')
         .limit(1)
-        .get()
-        .then((_) => setState(() => _offline = false))
+        .get(const GetOptions(source: Source.serverAndCache))
+        .then((snapshot) {
+          setState(() => _offline = !snapshot.metadata.isFromCache);
+          if (!snapshot.metadata.isFromCache) {
+            _cacheHymnsFromFirestore();
+          }
+        })
         .catchError((_) => setState(() => _offline = true));
-    // Optionally, use connectivity_plus for more robust detection
+
+    FirebaseFirestore.instance.collection('hymns').snapshots().listen((snapshot) {
+      _isar?.writeTxn(() async {
+        final currentFirestoreIds = snapshot.docs.map((e) => e.id).toSet();
+        final existingIsarHymns = await _isar!.isarHymns.where().findAll();
+
+        for (final isarHymn in existingIsarHymns) {
+          if (!currentFirestoreIds.contains(isarHymn.firestoreId)) {
+            await _isar!.isarHymns.delete(isarHymn.id);
+          }
+        }
+
+        for (final doc in snapshot.docs) {
+          final existingIsarHymn = await _isar!.isarHymns.filter().firestoreIdEqualTo(doc.id).findFirst();
+          final newIsarHymn = IsarHymn.fromFirestore(doc.id, doc.data());
+          if (existingIsarHymn == null) {
+            await _isar!.isarHymns.put(newIsarHymn);
+          } else if (existingIsarHymn.updatedAt?.isBefore(newIsarHymn.updatedAt ?? DateTime.now()) ?? true) {
+            newIsarHymn.id = existingIsarHymn.id;
+            await _isar!.isarHymns.put(newIsarHymn);
+          }
+        }
+      });
+    });
   }
 
   Future<void> _cacheHymnsFromFirestore() async {
@@ -275,16 +304,18 @@ class _MainHomeState extends State<MainHome> {
           await _isar!.isarHymns.put(IsarHymn.fromFirestore(doc.id, doc.data()));
         }
       });
-    } catch (_) {}
+    } catch (e) {
+      print("Error caching hymns: $e");
+    }
   }
 
   bool get isAdmin => _userRole == 'super_admin' || _userRole == 'admin' || _userRole == 'regional_admin' || _userRole == 'content_editor';
 
   @override
   Widget build(BuildContext context) {
-    if (_showSlideshow && _selectedHymn != null) {
+    if (_showSlideshow && _selectedHymnData != null) {
       return _SlideshowScreen(
-        hymn: _selectedHymn!,
+        hymnData: _selectedHymnData!,
         langs: _selectedLangs,
         onClose: () => setState(() => _showSlideshow = false),
       );
@@ -306,7 +337,6 @@ class _MainHomeState extends State<MainHome> {
       ),
       body: Row(
         children: [
-          // Hymn list
           Container(
             width: 350,
             color: Colors.grey[100],
@@ -323,86 +353,55 @@ class _MainHomeState extends State<MainHome> {
                   ),
                 ),
                 Expanded(
-                  child: _offline
-                      ? _isarStream == null
-                          ? const Center(child: CircularProgressIndicator())
-                          : StreamBuilder<List<IsarHymn>>(
-                              stream: _isarStream,
-                              builder: (context, snapshot) {
-                                if (!snapshot.hasData) {
-                                  return const Center(child: CircularProgressIndicator());
-                                }
-                                final hymns = snapshot.data!.where((hymn) {
-                                  final title = hymn.title;
-                                  return _search.isEmpty || title.values.any((v) => v.toLowerCase().contains(_search.toLowerCase()));
-                                }).toList();
-                                if (hymns.isEmpty) {
-                                  return const Center(child: Text('No hymns found.'));
-                                }
-                                return ListView.builder(
-                                  itemCount: hymns.length,
-                                  itemBuilder: (context, i) {
-                                    final hymn = hymns[i];
-                                    final title = hymn.title;
-                                    return ListTile(
-                                      title: Text(title[_selectedLangs.first] ?? title['en'] ?? 'Untitled'),
-                                      subtitle: Text(title['en'] ?? ''),
-                                      onTap: () => setState(() => _selectedHymn = null), // offline: no doc
-                                    );
-                                  },
-                                );
-                              },
-                            )
-                      : StreamBuilder<QuerySnapshot>(
-                          stream: FirebaseFirestore.instance.collection('hymns').snapshots(),
-                          builder: (context, snapshot) {
-                            if (!snapshot.hasData) {
-                              return const Center(child: CircularProgressIndicator());
-                            }
-                            final hymns = snapshot.data!.docs.where((doc) {
-                              final title = (doc['title'] as Map<String, dynamic>?) ?? {};
-                              return _search.isEmpty || title.values.any((v) => v.toString().toLowerCase().contains(_search.toLowerCase()));
-                            }).toList();
-                            if (hymns.isEmpty) {
-                              return const Center(child: Text('No hymns found.'));
-                            }
-                            return ListView.builder(
-                              itemCount: hymns.length,
-                              itemBuilder: (context, i) {
-                                final hymn = hymns[i];
-                                final title = (hymn['title'] as Map<String, dynamic>?) ?? {};
-                                return ListTile(
-                                  title: Text(title[_selectedLangs.first] ?? title['en'] ?? 'Untitled'),
-                                  subtitle: Text(title['en'] ?? ''),
-                                  onTap: () => setState(() => _selectedHymn = hymn),
-                                  selected: _selectedHymn?.id == hymn.id,
-                                );
-                              },
-                            );
-                          },
-                        ),
+                  child: StreamBuilder<List<IsarHymn>>(
+                    stream: _isarStream,
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final isarHymns = snapshot.data!;
+
+                      final filteredIsarHymns = isarHymns.where((hymn) {
+                        final title = hymn.titleMap;
+                        return _search.isEmpty || title.values.any((v) => v.toLowerCase().contains(_search.toLowerCase()));
+                      }).toList();
+
+                      if (filteredIsarHymns.isEmpty) {
+                        return const Center(child: Text('No hymns found.'));
+                      }
+                      return ListView.builder(
+                        itemCount: filteredIsarHymns.length,
+                        itemBuilder: (context, i) {
+                          final hymn = filteredIsarHymns[i];
+                          final title = hymn.titleMap;
+                          return ListTile(
+                            title: Text(title[_selectedLangs.first] ?? title['en'] ?? 'Untitled'),
+                            subtitle: Text(title['en'] ?? ''),
+                            onTap: () => setState(() => _selectedHymnData = hymn.toFirestore()),
+                            selected: _selectedHymnData?['firestoreId'] == hymn.firestoreId,
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
           ),
-          // Hymn display
           Expanded(
-            child: _selectedHymn == null
+            child: _selectedHymnData == null
                 ? Center(
                     child: Text('Select a hymn to view', style: Theme.of(context).textTheme.headlineSmall),
                   )
-                : _offline
-                    ? Center(child: Text('Offline hymn view coming soon'))
-                    : _HymnDisplay(
-                        hymn: _selectedHymn!,
-                        langs: _selectedLangs,
-                        onSelectLangs: () => setState(() => _showLangModal = true),
-                        onSlideshow: () => setState(() => _showSlideshow = true),
-                      ),
+                : _HymnDisplay(
+                    hymnData: _selectedHymnData!,
+                    langs: _selectedLangs,
+                    onSelectLangs: () => setState(() => _showLangModal = true),
+                    onSlideshow: () => setState(() => _showSlideshow = true),
+                  ),
           ),
         ],
       ),
-      // Language selection modal
       persistentFooterButtons: [
         if (_showLangModal)
           _LanguageSelectionModal(
@@ -425,11 +424,11 @@ class _MainHomeState extends State<MainHome> {
 }
 
 class _HymnDisplay extends StatefulWidget {
-  final DocumentSnapshot hymn;
+  final Map<String, dynamic> hymnData;
   final List<String> langs;
   final VoidCallback onSelectLangs;
   final VoidCallback onSlideshow;
-  const _HymnDisplay({required this.hymn, required this.langs, required this.onSelectLangs, required this.onSlideshow});
+  const _HymnDisplay({required this.hymnData, required this.langs, required this.onSelectLangs, required this.onSlideshow});
 
   @override
   State<_HymnDisplay> createState() => _HymnDisplayState();
@@ -463,9 +462,9 @@ class _HymnDisplayState extends State<_HymnDisplay> {
 
   @override
   Widget build(BuildContext context) {
-    final blocks = List<Map<String, dynamic>>.from(widget.hymn['blocks'] ?? []);
-    final audioUrl = widget.hymn['audioUrl'] as String?;
-    final youtubeUrl = widget.hymn['youtubeUrl'] as String?;
+    final blocks = List<Map<String, dynamic>>.from(widget.hymnData['blocks'] ?? []);
+    final audioUrl = widget.hymnData['audioUrl'] as String?;
+    final youtubeUrl = widget.hymnData['youtubeUrl'] as String?;
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -542,10 +541,10 @@ class _HymnDisplayState extends State<_HymnDisplay> {
 }
 
 class _SlideshowScreen extends StatefulWidget {
-  final DocumentSnapshot hymn;
+  final Map<String, dynamic> hymnData;
   final List<String> langs;
   final VoidCallback onClose;
-  const _SlideshowScreen({required this.hymn, required this.langs, required this.onClose});
+  const _SlideshowScreen({required this.hymnData, required this.langs, required this.onClose});
   @override
   State<_SlideshowScreen> createState() => _SlideshowScreenState();
 }
@@ -553,9 +552,15 @@ class _SlideshowScreen extends StatefulWidget {
 class _SlideshowScreenState extends State<_SlideshowScreen> {
   int _index = 0;
   bool _autoPlay = false;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final blocks = List<Map<String, dynamic>>.from(widget.hymn['blocks'] ?? []);
+    final blocks = List<Map<String, dynamic>>.from(widget.hymnData['blocks'] ?? []);
     final total = blocks.length;
     return Scaffold(
       backgroundColor: Colors.black,
@@ -713,7 +718,7 @@ class _AdminPortalModalState extends State<_AdminPortalModal> with SingleTickerP
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this); // Users, Feasts, Hymns, Notifications
+    _tabController = TabController(length: 4, vsync: this);
   }
   @override
   void dispose() {
@@ -785,7 +790,6 @@ class _UsersTabState extends State<_UsersTab> {
       context: context,
       builder: (context) => _InviteUserDialog(onInvite: (email, role) async {
         setState(() => _inviting = true);
-        // Add user invite logic here (Firestore + send email)
         final invites = FirebaseFirestore.instance.collection('invites');
         await invites.add({
           'email': email,
@@ -1815,7 +1819,6 @@ class _NotificationsTabState extends State<_NotificationsTab> {
   }
 
   Future<void> _sendNow(DocumentSnapshot notification) async {
-    // TODO: Implement actual push notification sending logic
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notification sent! (Simulated)')));
   }
 
