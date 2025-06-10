@@ -16,13 +16,10 @@ class IsarHymn {
   DateTime? createdAt;
   DateTime? updatedAt;
 
-  Map<String, String> get title => Map<String, String>.from(jsonDecode(titleJson));
-  List<Map<String, String>> get blocks => List<Map<String, String>>.from(jsonDecode(blocksJson));
-  List<String> get tags => List<String>.from(jsonDecode(tagsJson));
-
-  set title(Map<String, String> value) => titleJson = jsonEncode(value);
-  set blocks(List<Map<String, String>> value) => blocksJson = jsonEncode(value);
-  set tags(List<String> value) => tagsJson = jsonEncode(value);
+  // Accessors to parse JSON strings when needed
+  Map<String, String> get titleMap => Map<String, String>.from(jsonDecode(titleJson));
+  List<Map<String, String>> get blocksList => List<Map<String, String>>.from(jsonDecode(blocksJson));
+  List<String> get tagsList => List<String>.from(jsonDecode(tagsJson));
 
   static IsarHymn fromFirestore(String id, Map<String, dynamic> data) {
     return IsarHymn()
