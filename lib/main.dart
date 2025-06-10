@@ -1,127 +1,2049 @@
+import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:convert';
+import 'package:just_audio/just_audio.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:isar/isar.dart';
+import 'package:path_provider/path_provider.dart';
+import 'hymn_cache.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    // For web, you can pass options if needed, but if you set it in index.html, this is usually enough:
-    // options: DefaultFirebaseOptions.currentPlatform,
-  );
-  runApp(MyApp());
+  await Firebase.initializeApp();
+  runApp(const EverythingCopticApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class EverythingCopticApp extends StatelessWidget {
+  const EverythingCopticApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Everything Coptic',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const AuthGate(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        if (snapshot.hasData) {
+          return FutureBuilder<void>(
+            future: _ensureSuperAdmin(snapshot.data!),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Scaffold(body: Center(child: CircularProgressIndicator()));
+              }
+              return const MainHome();
+            },
+          );
+        }
+        return const SignInScreen();
+      },
+    );
+  }
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+Future<void> _ensureSuperAdmin(User user) async {
+  final usersRef = FirebaseFirestore.instance.collection('users');
+  final doc = await usersRef.doc(user.uid).get();
+  if (!doc.exists) {
+    await usersRef.doc(user.uid).set({
+      'email': user.email,
+      'role': user.email == 'philopatersalama16@gmail.com' ? 'super_admin' : 'user',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  } else if (user.email == 'philopatersalama16@gmail.com' && doc['role'] != 'super_admin') {
+    await usersRef.doc(user.uid).update({'role': 'super_admin'});
+  }
+}
 
-  void _incrementCounter() {
+class SignInScreen extends StatelessWidget {
+  const SignInScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Sign In')),
+      body: Center(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _EmailPasswordSignIn(),
+              const SizedBox(height: 16),
+              _GoogleSignInButton(),
+              if (!Platform.isAndroid && !Platform.isWindows && !Platform.isLinux && !Platform.isFuchsia)
+                _AppleSignInButton(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmailPasswordSignIn extends StatefulWidget {
+  @override
+  State<_EmailPasswordSignIn> createState() => _EmailPasswordSignInState();
+}
+
+class _EmailPasswordSignInState extends State<_EmailPasswordSignIn> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  String? _error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          width: 300,
+          child: TextField(
+            controller: _emailController,
+            decoration: const InputDecoration(labelText: 'Email'),
+          ),
+        ),
+        SizedBox(
+          width: 300,
+          child: TextField(
+            controller: _passwordController,
+            decoration: const InputDecoration(labelText: 'Password'),
+            obscureText: true,
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 8),
+          Text(_error!, style: const TextStyle(color: Colors.red)),
+        ],
+        const SizedBox(height: 8),
+        ElevatedButton(
+          onPressed: () async {
+            try {
+              await FirebaseAuth.instance.signInWithEmailAndPassword(
+                email: _emailController.text.trim(),
+                password: _passwordController.text.trim(),
+              );
+            } on FirebaseAuthException catch (e) {
+              setState(() => _error = e.message);
+            }
+          },
+          child: const Text('Sign In'),
+        ),
+        TextButton(
+          onPressed: () async {
+            try {
+              await FirebaseAuth.instance.createUserWithEmailAndPassword(
+                email: _emailController.text.trim(),
+                password: _passwordController.text.trim(),
+              );
+            } on FirebaseAuthException catch (e) {
+              setState(() => _error = e.message);
+            }
+          },
+          child: const Text('Register'),
+        ),
+      ],
+    );
+  }
+}
+
+class _GoogleSignInButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      icon: const Icon(Icons.login),
+      label: const Text('Sign in with Google'),
+      onPressed: () async {
+        final googleUser = await GoogleSignIn().signIn();
+        if (googleUser == null) return;
+        final googleAuth = await googleUser.authentication;
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+        await FirebaseAuth.instance.signInWithCredential(credential);
+      },
+    );
+  }
+}
+
+class _AppleSignInButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      icon: const Icon(Icons.apple),
+      label: const Text('Sign in with Apple'),
+      onPressed: () async {
+        final credential = await SignInWithApple.getAppleIDCredential(
+          scopes: [AppleIDAuthorizationScopes.email, AppleIDAuthorizationScopes.fullName],
+        );
+        final oauthCredential = OAuthProvider('apple.com').credential(
+          idToken: credential.identityToken,
+          accessToken: credential.authorizationCode,
+        );
+        await FirebaseAuth.instance.signInWithCredential(oauthCredential);
+      },
+    );
+  }
+}
+
+class MainHome extends StatefulWidget {
+  const MainHome({super.key});
+
+  @override
+  State<MainHome> createState() => _MainHomeState();
+}
+
+class _MainHomeState extends State<MainHome> {
+  String? _userRole;
+  bool _showLangModal = false;
+  bool _showAdminModal = false;
+  List<String> _selectedLangs = ['en', 'cop', 'ar'];
+  String _search = '';
+  DocumentSnapshot? _selectedHymn;
+  bool _showSlideshow = false;
+  bool _offline = false;
+  List<IsarHymn>? _isarHymns;
+  Isar? _isar;
+  Stream<List<IsarHymn>>? _isarStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserRole();
+    _initIsar();
+    _setupConnectivity();
+  }
+
+  Future<void> _fetchUserRole() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _userRole = doc['role'] ?? 'user';
+    });
+  }
+
+  Future<void> _initIsar() async {
+    final dir = await getApplicationDocumentsDirectory();
+    _isar = await Isar.open([IsarHymnSchema], directory: dir.path);
+    setState(() {
+      _isarStream = _isar!.isarHymns.where().watch(fireImmediately: true);
+    });
+  }
+
+  void _setupConnectivity() {
+    // Simple connectivity check using Firestore
+    FirebaseFirestore.instance
+        .collection('hymns')
+        .limit(1)
+        .get()
+        .then((_) => setState(() => _offline = false))
+        .catchError((_) => setState(() => _offline = true));
+    // Optionally, use connectivity_plus for more robust detection
+  }
+
+  Future<void> _cacheHymnsFromFirestore() async {
+    if (_isar == null) return;
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('hymns').get();
+      await _isar!.writeTxn(() async {
+        await _isar!.isarHymns.clear();
+        for (final doc in snapshot.docs) {
+          await _isar!.isarHymns.put(IsarHymn.fromFirestore(doc.id, doc.data()));
+        }
+      });
+    } catch (_) {}
+  }
+
+  bool get isAdmin => _userRole == 'super_admin' || _userRole == 'admin' || _userRole == 'regional_admin' || _userRole == 'content_editor';
+
+  @override
+  Widget build(BuildContext context) {
+    if (_showSlideshow && _selectedHymn != null) {
+      return _SlideshowScreen(
+        hymn: _selectedHymn!,
+        langs: _selectedLangs,
+        onClose: () => setState(() => _showSlideshow = false),
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Everything Coptic'),
+        actions: [
+          if (_offline)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Icon(Icons.cloud_off, color: Colors.red),
+            ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () => FirebaseAuth.instance.signOut(),
+          ),
+        ],
+      ),
+      body: Row(
+        children: [
+          // Hymn list
+          Container(
+            width: 350,
+            color: Colors.grey[100],
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: TextField(
+                    decoration: const InputDecoration(
+                      hintText: 'Search hymns...',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (v) => setState(() => _search = v.trim()),
+                  ),
+                ),
+                Expanded(
+                  child: _offline
+                      ? _isarStream == null
+                          ? const Center(child: CircularProgressIndicator())
+                          : StreamBuilder<List<IsarHymn>>(
+                              stream: _isarStream,
+                              builder: (context, snapshot) {
+                                if (!snapshot.hasData) {
+                                  return const Center(child: CircularProgressIndicator());
+                                }
+                                final hymns = snapshot.data!.where((hymn) {
+                                  final title = hymn.title;
+                                  return _search.isEmpty || title.values.any((v) => v.toLowerCase().contains(_search.toLowerCase()));
+                                }).toList();
+                                if (hymns.isEmpty) {
+                                  return const Center(child: Text('No hymns found.'));
+                                }
+                                return ListView.builder(
+                                  itemCount: hymns.length,
+                                  itemBuilder: (context, i) {
+                                    final hymn = hymns[i];
+                                    final title = hymn.title;
+                                    return ListTile(
+                                      title: Text(title[_selectedLangs.first] ?? title['en'] ?? 'Untitled'),
+                                      subtitle: Text(title['en'] ?? ''),
+                                      onTap: () => setState(() => _selectedHymn = null), // offline: no doc
+                                    );
+                                  },
+                                );
+                              },
+                            )
+                      : StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance.collection('hymns').snapshots(),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData) {
+                              return const Center(child: CircularProgressIndicator());
+                            }
+                            final hymns = snapshot.data!.docs.where((doc) {
+                              final title = (doc['title'] as Map<String, dynamic>?) ?? {};
+                              return _search.isEmpty || title.values.any((v) => v.toString().toLowerCase().contains(_search.toLowerCase()));
+                            }).toList();
+                            if (hymns.isEmpty) {
+                              return const Center(child: Text('No hymns found.'));
+                            }
+                            return ListView.builder(
+                              itemCount: hymns.length,
+                              itemBuilder: (context, i) {
+                                final hymn = hymns[i];
+                                final title = (hymn['title'] as Map<String, dynamic>?) ?? {};
+                                return ListTile(
+                                  title: Text(title[_selectedLangs.first] ?? title['en'] ?? 'Untitled'),
+                                  subtitle: Text(title['en'] ?? ''),
+                                  onTap: () => setState(() => _selectedHymn = hymn),
+                                  selected: _selectedHymn?.id == hymn.id,
+                                );
+                              },
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+          // Hymn display
+          Expanded(
+            child: _selectedHymn == null
+                ? Center(
+                    child: Text('Select a hymn to view', style: Theme.of(context).textTheme.headlineSmall),
+                  )
+                : _offline
+                    ? Center(child: Text('Offline hymn view coming soon'))
+                    : _HymnDisplay(
+                        hymn: _selectedHymn!,
+                        langs: _selectedLangs,
+                        onSelectLangs: () => setState(() => _showLangModal = true),
+                        onSlideshow: () => setState(() => _showSlideshow = true),
+                      ),
+          ),
+        ],
+      ),
+      // Language selection modal
+      persistentFooterButtons: [
+        if (_showLangModal)
+          _LanguageSelectionModal(
+            selected: _selectedLangs,
+            onClose: () => setState(() => _showLangModal = false),
+            onChanged: (langs) => setState(() => _selectedLangs = langs),
+          ),
+        if (_showAdminModal)
+          _AdminPortalModal(onClose: () => setState(() => _showAdminModal = false)),
+      ],
+      floatingActionButton: isAdmin && kIsWeb
+          ? FloatingActionButton.extended(
+              onPressed: () => setState(() => _showAdminModal = true),
+              icon: const Icon(Icons.admin_panel_settings),
+              label: const Text('Admin'),
+            )
+          : null,
+    );
+  }
+}
+
+class _HymnDisplay extends StatefulWidget {
+  final DocumentSnapshot hymn;
+  final List<String> langs;
+  final VoidCallback onSelectLangs;
+  final VoidCallback onSlideshow;
+  const _HymnDisplay({required this.hymn, required this.langs, required this.onSelectLangs, required this.onSlideshow});
+
+  @override
+  State<_HymnDisplay> createState() => _HymnDisplayState();
+}
+
+class _HymnDisplayState extends State<_HymnDisplay> {
+  AudioPlayer? _player;
+  bool _playing = false;
+
+  @override
+  void dispose() {
+    _player?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _playAudio(String url) async {
+    _player ??= AudioPlayer();
+    try {
+      await _player!.setUrl(url);
+      await _player!.play();
+      setState(() => _playing = true);
+      _player!.playerStateStream.listen((state) {
+        if (state.processingState == ProcessingState.completed) {
+          setState(() => _playing = false);
+        }
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Audio error: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final blocks = List<Map<String, dynamic>>.from(widget.hymn['blocks'] ?? []);
+    final audioUrl = widget.hymn['audioUrl'] as String?;
+    final youtubeUrl = widget.hymn['youtubeUrl'] as String?;
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: widget.onSelectLangs,
+                icon: const Icon(Icons.language),
+                label: const Text('Languages'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: widget.onSlideshow,
+                icon: const Icon(Icons.slideshow),
+                label: const Text('Slideshow'),
+              ),
+              const Spacer(),
+              if (audioUrl != null)
+                IconButton(
+                  icon: Icon(_playing ? Icons.stop : Icons.play_arrow),
+                  tooltip: _playing ? 'Stop Audio' : 'Play Audio',
+                  onPressed: _playing
+                      ? () async {
+                          await _player?.stop();
+                          setState(() => _playing = false);
+                        }
+                      : () => _playAudio(audioUrl),
+                ),
+              if (youtubeUrl != null && youtubeUrl.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.ondemand_video),
+                  tooltip: 'Open YouTube',
+                  onPressed: () async {
+                    final uri = Uri.tryParse(youtubeUrl);
+                    if (uri != null) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: SingleChildScrollView(
+              child: DataTable(
+                columns: widget.langs
+                    .map((lang) => DataColumn(
+                          label: Text(
+                            lang.toUpperCase(),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ))
+                    .toList(),
+                rows: blocks
+                    .map((block) => DataRow(
+                          cells: widget.langs
+                              .map((lang) => DataCell(
+                                    Text(block[lang] ?? '',
+                                        style: TextStyle(
+                                            color: (block[lang] ?? '').isEmpty ? Colors.grey : null)),
+                                  ))
+                              .toList(),
+                        ))
+                    .toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SlideshowScreen extends StatefulWidget {
+  final DocumentSnapshot hymn;
+  final List<String> langs;
+  final VoidCallback onClose;
+  const _SlideshowScreen({required this.hymn, required this.langs, required this.onClose});
+  @override
+  State<_SlideshowScreen> createState() => _SlideshowScreenState();
+}
+
+class _SlideshowScreenState extends State<_SlideshowScreen> {
+  int _index = 0;
+  bool _autoPlay = false;
+  @override
+  Widget build(BuildContext context) {
+    final blocks = List<Map<String, dynamic>>.from(widget.hymn['blocks'] ?? []);
+    final total = blocks.length;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        onTap: () => setState(() => _autoPlay = !_autoPlay),
+        child: Center(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 500),
+            child: total == 0
+                ? const Text('No blocks', style: TextStyle(color: Colors.white, fontSize: 32))
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: widget.langs
+                        .map((lang) => Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Text(
+                                  blocks[_index][lang] ?? '',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Colors.white, fontSize: 36),
+                                ),
+                              ),
+                            ))
+                        .toList(),
+                  ),
+          ),
+        ),
+      ),
+      floatingActionButton: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const SizedBox(width: 16),
+          FloatingActionButton(
+            heroTag: 'prev',
+            backgroundColor: Colors.white,
+            onPressed: _index > 0 ? () => setState(() => _index--) : null,
+            child: const Icon(Icons.arrow_back, color: Colors.black),
+          ),
+          const Spacer(),
+          FloatingActionButton(
+            heroTag: 'close',
+            backgroundColor: Colors.red,
+            onPressed: widget.onClose,
+            child: const Icon(Icons.close, color: Colors.white),
+          ),
+          const Spacer(),
+          FloatingActionButton(
+            heroTag: 'next',
+            backgroundColor: Colors.white,
+            onPressed: _index < (blocks.length - 1) ? () => setState(() => _index++) : null,
+            child: const Icon(Icons.arrow_forward, color: Colors.black),
+          ),
+          const SizedBox(width: 16),
+        ],
+      ),
+    );
+  }
+}
+
+class _LanguageSelectionModal extends StatefulWidget {
+  final List<String> selected;
+  final void Function() onClose;
+  final void Function(List<String>) onChanged;
+  const _LanguageSelectionModal({required this.selected, required this.onClose, required this.onChanged});
+  @override
+  State<_LanguageSelectionModal> createState() => _LanguageSelectionModalState();
+}
+
+class _LanguageSelectionModalState extends State<_LanguageSelectionModal> {
+  late List<String> _langs;
+  String? _error;
+  final List<Map<String, String>> _allLangs = [
+    {'code': 'en', 'name': 'English'},
+    {'code': 'cop', 'name': 'Coptic'},
+    {'code': 'ar', 'name': 'Arabic'},
+    {'code': 'cop-en', 'name': 'Coptic–English'},
+    {'code': 'cop-ar', 'name': 'Coptic–Arabic'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _langs = List.from(widget.selected);
+  }
+
+  bool _isValid(List<String> langs) {
+    if (langs.length > 3) return false;
+    if (langs.isEmpty) return false;
+    if (langs.contains('cop-en') && langs.contains('cop-ar')) return false;
+    if (langs.contains('cop') && (langs.contains('cop-en') || langs.contains('cop-ar'))) return false;
+    if (!langs.contains('cop') && !langs.contains('cop-en') && !langs.contains('cop-ar')) return false;
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.all(24),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Select up to 3 languages'),
+            ..._allLangs.map((lang) => CheckboxListTile(
+                  value: _langs.contains(lang['code']),
+                  title: Text(lang['name']!),
+                  onChanged: (val) {
+                    setState(() {
+                      if (val == true) {
+                        _langs.add(lang['code']!);
+                      } else {
+                        _langs.remove(lang['code']);
+                      }
+                      if (!_isValid(_langs)) {
+                        _error = 'Invalid combination.';
+                      } else {
+                        _error = null;
+                      }
+                    });
+                  },
+                )),
+            if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: widget.onClose, child: const Text('Cancel')),
+                ElevatedButton(
+                  onPressed: _isValid(_langs)
+                      ? () {
+                          widget.onChanged(_langs);
+                          widget.onClose();
+                        }
+                      : null,
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AdminPortalModal extends StatefulWidget {
+  final VoidCallback onClose;
+  const _AdminPortalModal({required this.onClose});
+  @override
+  State<_AdminPortalModal> createState() => _AdminPortalModalState();
+}
+
+class _AdminPortalModalState extends State<_AdminPortalModal> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 4, vsync: this); // Users, Feasts, Hymns, Notifications
+  }
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: SizedBox(
+        width: 1100,
+        height: 850,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Admin Portal', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
+                  IconButton(onPressed: widget.onClose, icon: const Icon(Icons.close)),
+                ],
+              ),
+            ),
+            const Divider(),
+            TabBar(
+              controller: _tabController,
+              labelColor: Colors.deepPurple,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: Colors.deepPurple,
+              tabs: const [
+                Tab(icon: Icon(Icons.people), text: 'Users'),
+                Tab(icon: Icon(Icons.event), text: 'Feasts'),
+                Tab(icon: Icon(Icons.music_note), text: 'Hymns'),
+                Tab(icon: Icon(Icons.notifications), text: 'Notifications'),
+              ],
+            ),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _UsersTab(),
+                  _FeastsTab(),
+                  _HymnsTab(),
+                  _NotificationsTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UsersTab extends StatefulWidget {
+  @override
+  State<_UsersTab> createState() => _UsersTabState();
+}
+
+class _UsersTabState extends State<_UsersTab> {
+  final _roles = const ['super_admin', 'admin', 'regional_admin', 'content_editor', 'user'];
+  bool _inviting = false;
+
+  void _showInviteDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _InviteUserDialog(onInvite: (email, role) async {
+        setState(() => _inviting = true);
+        // Add user invite logic here (Firestore + send email)
+        final invites = FirebaseFirestore.instance.collection('invites');
+        await invites.add({
+          'email': email,
+          'role': role,
+          'invitedAt': FieldValue.serverTimestamp(),
+          'accepted': false,
+        });
+        setState(() => _inviting = false);
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invitation sent!')));
+      }),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('users').snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final users = snapshot.data!.docs;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Users', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      FloatingActionButton.extended(
+                        heroTag: 'inviteUser',
+                        onPressed: _showInviteDialog,
+                        icon: const Icon(Icons.person_add),
+                        label: const Text('Invite User'),
+                        backgroundColor: Colors.deepPurple,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: users.length,
+                      separatorBuilder: (_, __) => const Divider(),
+                      itemBuilder: (context, i) {
+                        final user = users[i];
+                        return ListTile(
+                          leading: CircleAvatar(child: Text(user['email'][0].toUpperCase())),
+                          title: Text(user['email']),
+                          subtitle: Text('Role: ${user['role']}'),
+                          trailing: DropdownButton<String>(
+                            value: user['role'],
+                            items: _roles.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                FirebaseFirestore.instance.collection('users').doc(user.id).update({'role': val});
+                              }
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        if (_inviting)
+          Container(
+            color: Colors.black.withOpacity(0.2),
+            child: const Center(child: CircularProgressIndicator()),
+          ),
+      ],
+    );
+  }
+}
+
+class _InviteUserDialog extends StatefulWidget {
+  final Future<void> Function(String email, String role) onInvite;
+  const _InviteUserDialog({required this.onInvite});
+  @override
+  State<_InviteUserDialog> createState() => _InviteUserDialogState();
+}
+
+class _InviteUserDialogState extends State<_InviteUserDialog> {
+  final _emailController = TextEditingController();
+  String _role = 'user';
+  String? _error;
+  bool _loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Invite User', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _emailController,
+              decoration: const InputDecoration(labelText: 'Email'),
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: _role,
+              items: [
+                DropdownMenuItem(value: 'user', child: Text('User')),
+                DropdownMenuItem(value: 'content_editor', child: Text('Content Editor')),
+                DropdownMenuItem(value: 'regional_admin', child: Text('Regional Admin')),
+                DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                DropdownMenuItem(value: 'super_admin', child: Text('Super Admin')),
+              ],
+              onChanged: (val) => setState(() => _role = val ?? 'user'),
+              decoration: const InputDecoration(labelText: 'Role'),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+            ],
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _loading
+                      ? null
+                      : () async {
+                          final email = _emailController.text.trim();
+                          if (!email.contains('@')) {
+                            setState(() => _error = 'Enter a valid email');
+                            return;
+                          }
+                          setState(() {
+                            _loading = true;
+                            _error = null;
+                          });
+                          try {
+                            await widget.onInvite(email, _role);
+                          } catch (e) {
+                            setState(() => _error = e.toString());
+                          } finally {
+                            setState(() => _loading = false);
+                          }
+                        },
+                  child: _loading ? const CircularProgressIndicator() : const Text('Send Invite'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FeastsTab extends StatefulWidget {
+  @override
+  State<_FeastsTab> createState() => _FeastsTabState();
+}
+
+class _FeastsTabState extends State<_FeastsTab> {
+  bool _showDialog = false;
+  DocumentSnapshot? _editingFeast;
+
+  void _openFeastDialog([DocumentSnapshot? feast]) {
+    setState(() {
+      _editingFeast = feast;
+      _showDialog = true;
+    });
+  }
+
+  void _closeFeastDialog() {
+    setState(() {
+      _showDialog = false;
+      _editingFeast = null;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Feasts', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  FloatingActionButton.extended(
+                    heroTag: 'addFeast',
+                    onPressed: () => _openFeastDialog(),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Feast'),
+                    backgroundColor: Colors.deepPurple,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance.collection('feasts').orderBy('names.en').snapshots(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final feasts = snapshot.data!.docs;
+                    if (feasts.isEmpty) {
+                      return const Center(child: Text('No feasts found.'));
+                    }
+                    return ListView.separated(
+                      itemCount: feasts.length,
+                      separatorBuilder: (_, __) => const Divider(),
+                      itemBuilder: (context, i) {
+                        final feast = feasts[i];
+                        final names = feast['names'] as Map<String, dynamic>;
+                        return ListTile(
+                          leading: feast['iconUrl'] != null
+                              ? CircleAvatar(backgroundImage: NetworkImage(feast['iconUrl']))
+                              : const CircleAvatar(child: Icon(Icons.event)),
+                          title: Text(names['en'] ?? 'No English Name'),
+                          subtitle: Text('Type: ${feast['type'] ?? ''}'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                onPressed: () => _openFeastDialog(feast),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete),
+                                onPressed: () async {
+                                  await FirebaseFirestore.instance.collection('feasts').doc(feast.id).delete();
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_showDialog)
+          _FeastDialog(
+            feast: _editingFeast,
+            onClose: _closeFeastDialog,
+          ),
+      ],
+    );
+  }
+}
+
+class _FeastDialog extends StatefulWidget {
+  final DocumentSnapshot? feast;
+  final VoidCallback onClose;
+  const _FeastDialog({this.feast, required this.onClose});
+  @override
+  State<_FeastDialog> createState() => _FeastDialogState();
+}
+
+class _FeastDialogState extends State<_FeastDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final Map<String, TextEditingController> _nameCtrls = {
+    'en': TextEditingController(),
+    'ar': TextEditingController(),
+    'cop': TextEditingController(),
+    'cop-en': TextEditingController(),
+    'cop-ar': TextEditingController(),
+  };
+  String _type = 'Lordly';
+  String _calendar = 'fixed';
+  String? _iconUrl;
+  bool _uploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.feast != null) {
+      final names = widget.feast!['names'] as Map<String, dynamic>;
+      for (final lang in _nameCtrls.keys) {
+        _nameCtrls[lang]!.text = names[lang] ?? '';
+      }
+      _type = widget.feast!['type'] ?? 'Lordly';
+      _calendar = widget.feast!['calendar'] ?? 'fixed';
+      _iconUrl = widget.feast!['iconUrl'];
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final ctrl in _nameCtrls.values) {
+      ctrl.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _saveFeast() async {
+    if (!_formKey.currentState!.validate()) return;
+    final data = {
+      'names': {for (final lang in _nameCtrls.keys) lang: _nameCtrls[lang]!.text},
+      'type': _type,
+      'calendar': _calendar,
+      'iconUrl': _iconUrl,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    final feasts = FirebaseFirestore.instance.collection('feasts');
+    if (widget.feast == null) {
+      await feasts.add({...data, 'createdAt': FieldValue.serverTimestamp()});
+    } else {
+      await feasts.doc(widget.feast!.id).update(data);
+    }
+    widget.onClose();
+  }
+
+  Future<void> _pickIcon() async {
+    setState(() => _uploading = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image);
+      if (result != null && result.files.single.path != null) {
+        final file = result.files.single;
+        final ref = FirebaseStorage.instance.ref().child('feast_icons/${DateTime.now().millisecondsSinceEpoch}_${file.name}');
+        final uploadTask = ref.putData(file.bytes ?? await File(file.path!).readAsBytes());
+        final snapshot = await uploadTask;
+        final url = await snapshot.ref.getDownloadURL();
+        setState(() => _iconUrl = url);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Icon upload failed: $e')));
+    } finally {
+      setState(() => _uploading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(widget.feast == null ? 'Add Feast' : 'Edit Feast', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: _uploading ? null : _pickIcon,
+                      child: CircleAvatar(
+                        radius: 32,
+                        backgroundImage: _iconUrl != null ? NetworkImage(_iconUrl!) : null,
+                        child: _iconUrl == null ? const Icon(Icons.add_a_photo, size: 32) : null,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    _uploading ? const CircularProgressIndicator() : const SizedBox.shrink(),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ..._nameCtrls.entries.map((e) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: TextFormField(
+                        controller: e.value,
+                        decoration: InputDecoration(labelText: '${e.key.toUpperCase()} Name'),
+                        validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+                      ),
+                    )),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: _type,
+                  items: const [
+                    DropdownMenuItem(value: 'Lordly', child: Text('Lordly')),
+                    DropdownMenuItem(value: 'Marian', child: Text('Marian')),
+                    DropdownMenuItem(value: 'Saint', child: Text('Saint')),
+                    DropdownMenuItem(value: 'Fasting', child: Text('Fasting')),
+                  ],
+                  onChanged: (val) => setState(() => _type = val ?? 'Lordly'),
+                  decoration: const InputDecoration(labelText: 'Type'),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: _calendar,
+                  items: const [
+                    DropdownMenuItem(value: 'fixed', child: Text('Fixed')),
+                    DropdownMenuItem(value: 'computed', child: Text('Computed')),
+                  ],
+                  onChanged: (val) => setState(() => _calendar = val ?? 'fixed'),
+                  decoration: const InputDecoration(labelText: 'Calendar Logic'),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(onPressed: widget.onClose, child: const Text('Cancel')),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _saveFeast,
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+    );
+  }
+}
+
+class _HymnsTab extends StatefulWidget {
+  @override
+  State<_HymnsTab> createState() => _HymnsTabState();
+}
+
+class _HymnsTabState extends State<_HymnsTab> {
+  bool _showDialog = false;
+  DocumentSnapshot? _editingHymn;
+
+  void _openHymnDialog([DocumentSnapshot? hymn]) {
+    setState(() {
+      _editingHymn = hymn;
+      _showDialog = true;
+    });
+  }
+
+  void _closeHymnDialog() {
+    setState(() {
+      _showDialog = false;
+      _editingHymn = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Hymns', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  FloatingActionButton.extended(
+                    heroTag: 'addHymn',
+                    onPressed: () => _openHymnDialog(),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Hymn'),
+                    backgroundColor: Colors.deepPurple,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance.collection('hymns').orderBy('title.en').snapshots(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final hymns = snapshot.data!.docs;
+                    if (hymns.isEmpty) {
+                      return const Center(child: Text('No hymns found.'));
+                    }
+                    return ListView.separated(
+                      itemCount: hymns.length,
+                      separatorBuilder: (_, __) => const Divider(),
+                      itemBuilder: (context, i) {
+                        final hymn = hymns[i];
+                        final title = (hymn['title'] as Map<String, dynamic>?) ?? {};
+                        return ListTile(
+                          leading: hymn['audioUrl'] != null
+                              ? const Icon(Icons.audiotrack, color: Colors.deepPurple)
+                              : const Icon(Icons.music_note),
+                          title: Text(title['en'] ?? 'No English Title'),
+                          subtitle: Text('Tags: ${(hymn['tags'] as List<dynamic>?)?.join(", ") ?? ''}'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                onPressed: () => _openHymnDialog(hymn),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete),
+                                onPressed: () async {
+                                  await FirebaseFirestore.instance.collection('hymns').doc(hymn.id).delete();
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_showDialog)
+          _HymnDialog(
+            hymn: _editingHymn,
+            onClose: _closeHymnDialog,
+          ),
+      ],
+    );
+  }
+}
+
+class _HymnDialog extends StatefulWidget {
+  final DocumentSnapshot? hymn;
+  final VoidCallback onClose;
+  const _HymnDialog({this.hymn, required this.onClose});
+  @override
+  State<_HymnDialog> createState() => _HymnDialogState();
+}
+
+class _HymnDialogState extends State<_HymnDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final Map<String, TextEditingController> _titleCtrls = {
+    'en': TextEditingController(),
+    'ar': TextEditingController(),
+    'cop': TextEditingController(),
+    'cop-en': TextEditingController(),
+    'cop-ar': TextEditingController(),
+  };
+  List<Map<String, String>> _blocks = [];
+  List<String> _tags = [];
+  String _season = 'Annual';
+  String? _audioUrl;
+  String? _youtubeUrl;
+  bool _uploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.hymn != null) {
+      final title = widget.hymn!['title'] as Map<String, dynamic>;
+      for (final lang in _titleCtrls.keys) {
+        _titleCtrls[lang]!.text = title[lang] ?? '';
+      }
+      _blocks = List<Map<String, String>>.from(widget.hymn!['blocks'] ?? []);
+      _tags = List<String>.from(widget.hymn!['tags'] ?? []);
+      _season = widget.hymn!['season'] ?? 'Annual';
+      _audioUrl = widget.hymn!['audioUrl'];
+      _youtubeUrl = widget.hymn!['youtubeUrl'];
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final ctrl in _titleCtrls.values) {
+      ctrl.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _saveHymn() async {
+    if (!_formKey.currentState!.validate()) return;
+    final data = {
+      'title': {for (final lang in _titleCtrls.keys) lang: _titleCtrls[lang]!.text},
+      'blocks': _blocks,
+      'tags': _tags,
+      'season': _season,
+      'audioUrl': _audioUrl,
+      'youtubeUrl': _youtubeUrl,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    final hymns = FirebaseFirestore.instance.collection('hymns');
+    if (widget.hymn == null) {
+      await hymns.add({...data, 'createdAt': FieldValue.serverTimestamp()});
+    } else {
+      await hymns.doc(widget.hymn!.id).update(data);
+    }
+    widget.onClose();
+  }
+
+  Future<void> _pickAudio() async {
+    setState(() => _uploading = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['mp3']);
+      if (result != null && result.files.single.path != null) {
+        final file = result.files.single;
+        final ref = FirebaseStorage.instance.ref().child('hymn_audio/${DateTime.now().millisecondsSinceEpoch}_${file.name}');
+        final uploadTask = ref.putData(file.bytes ?? await File(file.path!).readAsBytes());
+        final snapshot = await uploadTask;
+        final url = await snapshot.ref.getDownloadURL();
+        setState(() => _audioUrl = url);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Audio upload failed: $e')));
+    } finally {
+      setState(() => _uploading = false);
+    }
+  }
+
+  void _editBlock(int index) {
+    showDialog(
+      context: context,
+      builder: (context) => _PhraseBlockDialog(
+        block: _blocks[index],
+        onSave: (block) {
+          setState(() => _blocks[index] = block);
+        },
+      ),
+    );
+  }
+
+  void _addBlock() {
+    showDialog(
+      context: context,
+      builder: (context) => _PhraseBlockDialog(
+        block: {'en': '', 'ar': '', 'cop': '', 'cop-en': '', 'cop-ar': ''},
+        onSave: (block) {
+          setState(() => _blocks.add(block));
+        },
+      ),
+    );
+  }
+
+  void _openAlignBlocks() async {
+    final result = await showDialog<List<Map<String, String>>>(
+      context: context,
+      builder: (context) => _AlignBlocksDialog(blocks: List<Map<String, String>>.from(_blocks)),
+    );
+    if (result != null) {
+      setState(() => _blocks = result);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(widget.hymn == null ? 'Add Hymn' : 'Edit Hymn', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const SizedBox(height: 16),
+                ..._titleCtrls.entries.map((e) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: TextFormField(
+                        controller: e.value,
+                        decoration: InputDecoration(labelText: '${e.key.toUpperCase()} Title'),
+                        validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+                      ),
+                    )),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Text('Phrase Blocks', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'addBlock',
+                      onPressed: _addBlock,
+                      child: const Icon(Icons.add),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: _blocks.isNotEmpty ? _openAlignBlocks : null,
+                      icon: const Icon(Icons.table_chart),
+                      label: const Text('Align Blocks'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ..._blocks.asMap().entries.map((entry) => Card(
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      child: ListTile(
+                        title: Text(entry.value['en'] ?? ''),
+                        subtitle: Text('Coptic: ${entry.value['cop'] ?? ''}'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () => _editBlock(entry.key),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete),
+                              onPressed: () => setState(() => _blocks.removeAt(entry.key)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )),
+                const SizedBox(height: 16),
+                TextFormField(
+                  decoration: const InputDecoration(labelText: 'Tags (comma separated)'),
+                  initialValue: _tags.join(', '),
+                  onChanged: (v) => _tags = v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: _season,
+                  items: const [
+                    DropdownMenuItem(value: 'Annual', child: Text('Annual')),
+                    DropdownMenuItem(value: 'Festal', child: Text('Festal')),
+                    DropdownMenuItem(value: 'Lent', child: Text('Lent')),
+                    DropdownMenuItem(value: 'Advent', child: Text('Advent')),
+                  ],
+                  onChanged: (val) => setState(() => _season = val ?? 'Annual'),
+                  decoration: const InputDecoration(labelText: 'Season'),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _uploading ? null : _pickAudio,
+                      icon: const Icon(Icons.upload_file),
+                      label: const Text('Upload Audio'),
+                    ),
+                    const SizedBox(width: 8),
+                    if (_audioUrl != null)
+                      const Icon(Icons.check_circle, color: Colors.green),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  decoration: const InputDecoration(labelText: 'YouTube Link'),
+                  initialValue: _youtubeUrl ?? '',
+                  onChanged: (v) => _youtubeUrl = v.trim(),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(onPressed: widget.onClose, child: const Text('Cancel')),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _saveHymn,
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PhraseBlockDialog extends StatefulWidget {
+  final Map<String, String> block;
+  final void Function(Map<String, String>) onSave;
+  const _PhraseBlockDialog({required this.block, required this.onSave});
+  @override
+  State<_PhraseBlockDialog> createState() => _PhraseBlockDialogState();
+}
+
+class _PhraseBlockDialogState extends State<_PhraseBlockDialog> {
+  final Map<String, TextEditingController> _ctrls = {
+    'en': TextEditingController(),
+    'ar': TextEditingController(),
+    'cop': TextEditingController(),
+    'cop-en': TextEditingController(),
+    'cop-ar': TextEditingController(),
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    for (final lang in _ctrls.keys) {
+      _ctrls[lang]!.text = widget.block[lang] ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final ctrl in _ctrls.values) {
+      ctrl.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Edit Phrase Block', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            const SizedBox(height: 16),
+            ..._ctrls.entries.map((e) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: TextField(
+                    controller: e.value,
+                    decoration: InputDecoration(labelText: '${e.key.toUpperCase()}'),
+                  ),
+                )),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () {
+                    final block = {for (final lang in _ctrls.keys) lang: _ctrls[lang]!.text};
+                    widget.onSave(block);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
+
+class _AlignBlocksDialog extends StatefulWidget {
+  final List<Map<String, String>> blocks;
+  const _AlignBlocksDialog({required this.blocks});
+  @override
+  State<_AlignBlocksDialog> createState() => _AlignBlocksDialogState();
+}
+
+class _AlignBlocksDialogState extends State<_AlignBlocksDialog> {
+  late List<Map<String, String>> _blocks;
+  String? _importExportError;
+
+  @override
+  void initState() {
+    super.initState();
+    _blocks = List<Map<String, String>>.from(widget.blocks);
+  }
+
+  void _onReorder(int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > oldIndex) newIndex--;
+      final item = _blocks.removeAt(oldIndex);
+      _blocks.insert(newIndex, item);
+    });
+  }
+
+  void _exportBlocks() {
+    final jsonStr = jsonEncode(_blocks);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Export Blocks (JSON)'),
+        content: SingleChildScrollView(child: SelectableText(jsonStr)),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+      ),
+    );
+  }
+
+  void _importBlocks() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Import Blocks (JSON)'),
+        content: TextField(
+          controller: controller,
+          maxLines: 8,
+          decoration: const InputDecoration(hintText: 'Paste JSON here'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+    if (result != null && result.trim().isNotEmpty) {
+      try {
+        final imported = List<Map<String, dynamic>>.from(jsonDecode(result));
+        setState(() {
+          _blocks = imported.map((e) => e.map((k, v) => MapEntry(k, v?.toString() ?? ''))).toList();
+          _importExportError = null;
+        });
+      } catch (e) {
+        setState(() => _importExportError = 'Invalid JSON: $e');
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final langs = ['en', 'ar', 'cop', 'cop-en', 'cop-ar'];
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Text('Align Blocks', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.upload_file),
+                  tooltip: 'Import',
+                  onPressed: _importBlocks,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.download),
+                  tooltip: 'Export',
+                  onPressed: _exportBlocks,
+                ),
+              ],
+            ),
+            if (_importExportError != null)
+              Text(_importExportError!, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 400,
+              child: ReorderableListView(
+                onReorder: _onReorder,
+                children: [
+                  for (int i = 0; i < _blocks.length; i++)
+                    Card(
+                      key: ValueKey(i),
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Row(
+                          children: [
+                            Text('#${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 8),
+                            ...langs.map((lang) => Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                                    child: TextFormField(
+                                      initialValue: _blocks[i][lang] ?? '',
+                                      decoration: InputDecoration(
+                                        labelText: lang.toUpperCase(),
+                                        fillColor: (_blocks[i][lang] ?? '').isEmpty ? Colors.yellow[100] : null,
+                                        filled: (_blocks[i][lang] ?? '').isEmpty,
+                                      ),
+                                      onChanged: (v) => _blocks[i][lang] = v.trim(),
+                                    ),
+                                  ),
+                                )),
+                            IconButton(
+                              icon: const Icon(Icons.delete),
+                              onPressed: () => setState(() => _blocks.removeAt(i)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: () => Navigator.pop(context, null), child: const Text('Cancel')),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, _blocks),
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationsTab extends StatefulWidget {
+  @override
+  State<_NotificationsTab> createState() => _NotificationsTabState();
+}
+
+class _NotificationsTabState extends State<_NotificationsTab> {
+  bool _showDialog = false;
+  DocumentSnapshot? _editingNotification;
+
+  void _openNotificationDialog([DocumentSnapshot? notification]) {
+    setState(() {
+      _editingNotification = notification;
+      _showDialog = true;
+    });
+  }
+
+  void _closeNotificationDialog() {
+    setState(() {
+      _showDialog = false;
+      _editingNotification = null;
+    });
+  }
+
+  Future<void> _sendNow(DocumentSnapshot notification) async {
+    // TODO: Implement actual push notification sending logic
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notification sent! (Simulated)')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Notifications', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  FloatingActionButton.extended(
+                    heroTag: 'addNotification',
+                    onPressed: () => _openNotificationDialog(),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Notification'),
+                    backgroundColor: Colors.deepPurple,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance.collection('notifications').orderBy('scheduledAt').snapshots(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final notifications = snapshot.data!.docs;
+                    if (notifications.isEmpty) {
+                      return const Center(child: Text('No notifications scheduled.'));
+                    }
+                    return ListView.separated(
+                      itemCount: notifications.length,
+                      separatorBuilder: (_, __) => const Divider(),
+                      itemBuilder: (context, i) {
+                        final notification = notifications[i];
+                        return ListTile(
+                          leading: Icon(
+                            notification['important'] == true ? Icons.star : Icons.notifications,
+                            color: notification['important'] == true ? Colors.amber : Colors.deepPurple,
+                          ),
+                          title: Text(notification['title'] ?? ''),
+                          subtitle: Text('Scheduled: ${notification['scheduledAt'] != null ? (notification['scheduledAt'] as Timestamp).toDate().toString() : 'N/A'}'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.send),
+                                tooltip: 'Send Now',
+                                onPressed: () => _sendNow(notification),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                onPressed: () => _openNotificationDialog(notification),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete),
+                                onPressed: () async {
+                                  await FirebaseFirestore.instance.collection('notifications').doc(notification.id).delete();
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_showDialog)
+          _NotificationDialog(
+            notification: _editingNotification,
+            onClose: _closeNotificationDialog,
+          ),
+      ],
+    );
+  }
+}
+
+class _NotificationDialog extends StatefulWidget {
+  final DocumentSnapshot? notification;
+  final VoidCallback onClose;
+  const _NotificationDialog({this.notification, required this.onClose});
+  @override
+  State<_NotificationDialog> createState() => _NotificationDialogState();
+}
+
+class _NotificationDialogState extends State<_NotificationDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _titleCtrl = TextEditingController();
+  final _bodyCtrl = TextEditingController();
+  DateTime? _scheduledAt;
+  bool _important = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.notification != null) {
+      _titleCtrl.text = widget.notification!['title'] ?? '';
+      _bodyCtrl.text = widget.notification!['body'] ?? '';
+      _scheduledAt = widget.notification!['scheduledAt'] != null ? (widget.notification!['scheduledAt'] as Timestamp).toDate() : null;
+      _important = widget.notification!['important'] ?? false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _bodyCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveNotification() async {
+    if (!_formKey.currentState!.validate()) return;
+    final data = {
+      'title': _titleCtrl.text,
+      'body': _bodyCtrl.text,
+      'scheduledAt': _scheduledAt,
+      'important': _important,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    final notifications = FirebaseFirestore.instance.collection('notifications');
+    if (widget.notification == null) {
+      await notifications.add({...data, 'createdAt': FieldValue.serverTimestamp()});
+    } else {
+      await notifications.doc(widget.notification!.id).update(data);
+    }
+    widget.onClose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(widget.notification == null ? 'Add Notification' : 'Edit Notification', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _titleCtrl,
+                  decoration: const InputDecoration(labelText: 'Title'),
+                  validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _bodyCtrl,
+                  decoration: const InputDecoration(labelText: 'Body'),
+                  maxLines: 3,
+                  validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Checkbox(
+                      value: _important,
+                      onChanged: (val) => setState(() => _important = val ?? false),
+                    ),
+                    const Text('Mark as important (auto for feasts/saints)'),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Text('Schedule:'),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _scheduledAt ?? DateTime.now(),
+                          firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                          lastDate: DateTime.now().add(const Duration(days: 365)),
+                        );
+                        if (picked != null) {
+                          final time = await showTimePicker(
+                            context: context,
+                            initialTime: TimeOfDay.fromDateTime(_scheduledAt ?? DateTime.now()),
+                          );
+                          if (time != null) {
+                            setState(() {
+                              _scheduledAt = DateTime(picked.year, picked.month, picked.day, time.hour, time.minute);
+                            });
+                          }
+                        }
+                      },
+                      child: Text(_scheduledAt == null ? 'Pick Date & Time' : _scheduledAt.toString()),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(onPressed: widget.onClose, child: const Text('Cancel')),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _saveNotification,
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Firestore structure (for reference):
+// users: {uid, email, role, createdAt}
+// hymns: {id, blocks: [{id, en, ar, cop, cop-en, cop-ar, audioUrl, ...}], tags, seasons, ...}
+// feasts: {id, names: {en, ar, cop, ...}, type, calendar, icon, readings, hymns}
+// settings: {theme, defaultLangs, interlinear, textSize, slideshowEnabled, ...}
+//
