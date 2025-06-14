@@ -1,9 +1,11 @@
 import 'package:isar/isar.dart';
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 part 'hymn_cache.g.dart';
 
 @collection
+@Name('IsarHymn')
 class IsarHymn {
   Id id = Isar.autoIncrement;
   late String firestoreId;
@@ -18,9 +20,11 @@ class IsarHymn {
 
   // Accessors to parse JSON strings when needed
   @ignore
-  Map<String, String> get titleMap => Map<String, String>.from(jsonDecode(titleJson));
+  Map<String, String> get titleMap =>
+      Map<String, String>.from(jsonDecode(titleJson));
   @ignore
-  List<Map<String, String>> get blocksList => List<Map<String, String>>.from(jsonDecode(blocksJson));
+  List<Map<String, String>> get blocksList =>
+      List<Map<String, String>>.from(jsonDecode(blocksJson));
   @ignore
   List<String> get tagsList => List<String>.from(jsonDecode(tagsJson));
 
@@ -49,4 +53,4 @@ class IsarHymn {
       'updatedAt': updatedAt,
     };
   }
-} 
+}
