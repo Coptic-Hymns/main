@@ -5,8 +5,8 @@ part 'hymn.g.dart';
 
 @collection
 class Hymn {
-  Id id = Isar.autoIncrement;
-  String? firestoreId;
+  @Id()
+  String id = '';
 
   @Index(type: IndexType.value)
   String? title;
@@ -23,7 +23,7 @@ class Hymn {
   DateTime? updatedAt;
 
   Hymn({
-    this.firestoreId,
+    required this.id,
     this.title,
     this.category,
     this.lyrics,
@@ -38,7 +38,7 @@ class Hymn {
   factory Hymn.fromFirestore(firestore.DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
     return Hymn(
-      firestoreId: doc.id,
+      id: doc.id,
       title: data['title'],
       category: data['category'],
       lyrics: data['lyrics'],

@@ -4,7 +4,8 @@ import '../models/feast.dart';
 import 'feast_detail_screen.dart';
 
 class FeastsScreen extends StatefulWidget {
-  const FeastsScreen({super.key});
+  final bool showFavoritesOnly;
+  const FeastsScreen({super.key, this.showFavoritesOnly = false});
 
   @override
   State<FeastsScreen> createState() => _FeastsScreenState();
@@ -33,14 +34,22 @@ class _FeastsScreenState extends State<FeastsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Coptic Feasts'),
+        title: Text(widget.showFavoritesOnly ? 'Favorite Feasts' : 'Coptic Feasts'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.favorite),
-            onPressed: () {
-              // TODO: Navigate to favorites
-            },
-          ),
+          if (!widget.showFavoritesOnly)
+            IconButton(
+              icon: const Icon(Icons.favorite),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const FeastsScreen(
+                      showFavoritesOnly: true,
+                    ),
+                  ),
+                );
+              },
+            ),
         ],
       ),
       body: Column(
@@ -80,6 +89,7 @@ class _FeastsScreenState extends State<FeastsScreen> {
                   .collection('feasts')
                   .where('name', isGreaterThanOrEqualTo: _searchQuery)
                   .where('name', isLessThanOrEqualTo: '${_searchQuery}z')
+                  .where('isFavorite', isEqualTo: widget.showFavoritesOnly ? true : null)
                   .orderBy('date')
                   .snapshots(),
               builder: (context, snapshot) {
@@ -140,9 +150,14 @@ class _FeastsScreenState extends State<FeastsScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: widget.showFavoritesOnly ? null : FloatingActionButton(
         onPressed: () {
-          // TODO: Add new feast
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const FeastDetailScreen(isNew: true),
+            ),
+          );
         },
         child: const Icon(Icons.add),
       ),

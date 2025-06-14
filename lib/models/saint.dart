@@ -5,7 +5,10 @@ part 'saint.g.dart';
 
 @collection
 class Saint {
-  Id id = Isar.autoIncrement;
+  @Index(type: IndexType.value)
+  String? id;
+
+  @Index(type: IndexType.value)
   String? firestoreId;
 
   @Index(type: IndexType.value)
@@ -23,6 +26,7 @@ class Saint {
   DateTime? updatedAt;
 
   Saint({
+    this.id,
     this.firestoreId,
     this.name,
     this.feastDay,
@@ -38,6 +42,7 @@ class Saint {
   factory Saint.fromFirestore(firestore.DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
     return Saint(
+      id: doc.id,
       firestoreId: doc.id,
       name: data['name'],
       feastDay: data['feastDay'],

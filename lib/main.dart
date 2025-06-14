@@ -17,7 +17,15 @@ import 'hymn_cache.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'screens/main_screen.dart';
-import 'theme/app_theme.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'providers/theme_provider.dart';
+import 'screens/admin_panel_screen.dart';
+import 'screens/calendar_screen.dart';
+import 'screens/feasts_screen.dart';
+import 'screens/hymns_screen.dart';
+import 'screens/prayers_screen.dart';
+import 'screens/saints_screen.dart';
 
 // Global Isar instance
 late Isar isar;
@@ -64,88 +72,94 @@ Future<void> _showLocalNotification(RemoteMessage message) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-
-  // Initialize Isar
-  final dir = await getApplicationDocumentsDirectory();
-  isar = await Isar.open([IsarHymnSchema], directory: dir.path);
-
-  // Initialize Flutter Local Notifications
-  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
-  const AndroidInitializationSettings initializationSettingsAndroid =
-      AndroidInitializationSettings(
-    'app_icon',
-  ); // Ensure you have app_icon.png in android/app/src/main/res/drawable/
-  const DarwinInitializationSettings initializationSettingsIOS =
-      DarwinInitializationSettings();
-  const InitializationSettings initializationSettings = InitializationSettings(
-    android: initializationSettingsAndroid,
-    iOS: initializationSettingsIOS,
+  await SharedPreferences.getInstance(); // Initialize SharedPreferences
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+      ],
+      child: const MyApp(),
+    ),
   );
-  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
-
-  // Request FCM permissions
-  NotificationSettings settings =
-      await FirebaseMessaging.instance.requestPermission(
-    alert: true,
-    announcement: false,
-    badge: true,
-    carPlay: false,
-    criticalAlert: false,
-    provisional: false,
-    sound: true,
-  );
-
-  if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-    log('User granted permission');
-    // Get FCM token (optional, but good for testing and targeted notifications)
-    String? token = await FirebaseMessaging.instance.getToken();
-    log('FCM Token: $token');
-
-    // Handle foreground messages
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      log('Got a message whilst in the foreground!');
-      log('Message data: ${message.data}');
-      _showLocalNotification(message);
-    });
-
-    // Handle background messages (when app is in background but not terminated)
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
-    // Handle messages when app is terminated or in background and user taps notification
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      log('A new onMessageOpenedApp event was published!');
-      // Handle navigation based on notification payload
-      if (message.data.containsKey('type')) {
-        switch (message.data['type']) {
-          case 'feast':
-            // Navigate to feast details
-            break;
-          case 'saint':
-            // Navigate to saint details
-            break;
-          case 'prayer':
-            // Navigate to prayer details
-            break;
-        }
-      }
-    });
-  } else {
-    log('User declined or has not accepted permission');
-  }
-
-  runApp(const EverythingCopticApp());
 }
 
-class EverythingCopticApp extends StatelessWidget {
-  const EverythingCopticApp({super.key});
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return MaterialApp(
       title: 'Everything Coptic',
-      theme: AppTheme.lightTheme,
-      home: const AuthGate(),
+      theme: themeProvider.theme,
+      home: const HomeScreen(),
+    );
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _selectedIndex = 0;
+
+  final List<Widget> _screens = [
+    const CalendarScreen(),
+    const FeastsScreen(),
+    const HymnsScreen(),
+    const PrayersScreen(),
+    const SaintsScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _screens[_selectedIndex],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.calendar_today),
+            label: 'Calendar',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.event),
+            label: 'Feasts',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.music_note),
+            label: 'Hymns',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.book),
+            label: 'Prayers',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person),
+            label: 'Saints',
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const AdminPanelScreen(),
+            ),
+          );
+        },
+        child: const Icon(Icons.admin_panel_settings),
+      ),
     );
   }
 }
@@ -357,7 +371,9 @@ class _MainHomeState extends State<MainHome> {
   void initState() {
     super.initState();
     _fetchUserRole();
-    _initIsar();
+    if (!kIsWeb) {
+      _initIsar();
+    }
     _setupConnectivity();
   }
 
@@ -374,8 +390,15 @@ class _MainHomeState extends State<MainHome> {
   }
 
   Future<void> _initIsar() async {
+    if (kIsWeb) return; // Skip Isar initialization for web
+    
     final dir = await getApplicationDocumentsDirectory();
-    _isar = await Isar.open([IsarHymnSchema], directory: dir.path);
+    _isar = await Isar.open(
+      [IsarHymnSchema],
+      directory: dir.path,
+      inspector: true,
+      maxSizeMiB: 512,
+    );
     setState(() {
       _isarStream = _isar!.isarHymns.where().watch(fireImmediately: true);
     });
@@ -383,6 +406,12 @@ class _MainHomeState extends State<MainHome> {
   }
 
   void _setupConnectivity() {
+    if (kIsWeb) {
+      // For web, we'll just use Firestore directly
+      setState(() => _offline = false);
+      return;
+    }
+
     FirebaseFirestore.instance
         .collection('hymns')
         .limit(1)
@@ -400,6 +429,8 @@ class _MainHomeState extends State<MainHome> {
     FirebaseFirestore.instance.collection('hymns').snapshots().listen((
       snapshot,
     ) {
+      if (kIsWeb) return; // Skip caching for web
+      
       _isar?.writeTxn(() async {
         final currentFirestoreIds = snapshot.docs.map((e) => e.id).toSet();
         final existingIsarHymns = await _isar!.isarHymns.where().findAll();
@@ -431,10 +462,10 @@ class _MainHomeState extends State<MainHome> {
   }
 
   Future<void> _cacheHymnsFromFirestore() async {
-    if (_isar == null) return;
+    if (kIsWeb || _isar == null) return; // Skip caching for web
+    
     try {
-      final snapshot =
-          await FirebaseFirestore.instance.collection('hymns').get();
+      final snapshot = await FirebaseFirestore.instance.collection('hymns').get();
       await _isar!.writeTxn(() async {
         await _isar!.isarHymns.clear();
         for (final doc in snapshot.docs) {
@@ -1456,7 +1487,7 @@ class _FeastDialogState extends State<_FeastDialog> {
               children: [
                 Text(
                   widget.feast == null ? 'Add Feast' : 'Edit Feast',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                 ),
                 const SizedBox(height: 16),
                 Row(
@@ -1780,7 +1811,7 @@ class _HymnDialogState extends State<_HymnDialog> {
     showDialog(
       context: context,
       builder: (context) => _PhraseBlockDialog(
-        block: {'en': '', 'ar': '', 'cop': '', 'cop-en': '', 'cop-ar': ''},
+        block: const {'en': '', 'ar': '', 'cop': '', 'cop-en': '', 'cop-ar': ''},
         onSave: (block) {
           setState(() => _blocks.add(block));
         },
@@ -1800,18 +1831,17 @@ class _HymnDialogState extends State<_HymnDialog> {
   }
 
   Future<void> _showDateTimePicker(BuildContext context) async {
-    final dialogContext = context;
     final initialTime = TimeOfDay.fromDateTime(_scheduledAt ?? DateTime.now());
     final initialDate = _scheduledAt ?? DateTime.now();
 
     showDatePicker(
-      context: dialogContext,
+      context: context,
       initialDate: initialDate,
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     ).then((picked) {
       if (!mounted || picked == null) return;
-      showTimePicker(context: dialogContext, initialTime: initialTime).then((
+      showTimePicker(context: context, initialTime: initialTime).then((
         time,
       ) {
         if (!mounted || time == null) return;
@@ -1842,7 +1872,7 @@ class _HymnDialogState extends State<_HymnDialog> {
               children: [
                 Text(
                   widget.hymn == null ? 'Add Hymn' : 'Edit Hymn',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                 ),
                 const SizedBox(height: 16),
                 ..._titleCtrls.entries.map(
@@ -1991,7 +2021,7 @@ class _HymnDialogState extends State<_HymnDialog> {
 class _NotificationsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Center(child: Text('_NotificationsTab placeholder'));
+    return const Center(child: Text('_NotificationsTab placeholder'));
   }
 }
 
@@ -2011,7 +2041,7 @@ class _PhraseBlockDialog extends StatelessWidget {
             onSave(block);
             Navigator.pop(context);
           },
-          child: Text('Save'),
+          child: const Text('Save'),
         ),
       ],
     );
@@ -2030,7 +2060,7 @@ class _AlignBlocksDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, blocks),
-          child: Text('Save'),
+          child: const Text('Save'),
         ),
       ],
     );

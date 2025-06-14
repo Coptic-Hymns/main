@@ -4,7 +4,8 @@ import '../models/prayer.dart';
 import 'prayer_detail_screen.dart';
 
 class PrayersScreen extends StatefulWidget {
-  const PrayersScreen({super.key});
+  final bool showFavoritesOnly;
+  const PrayersScreen({super.key, this.showFavoritesOnly = false});
 
   @override
   State<PrayersScreen> createState() => _PrayersScreenState();
@@ -33,14 +34,22 @@ class _PrayersScreenState extends State<PrayersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Coptic Prayers'),
+        title: Text(widget.showFavoritesOnly ? 'Favorite Prayers' : 'Coptic Prayers'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.favorite),
-            onPressed: () {
-              // TODO: Navigate to favorites
-            },
-          ),
+          if (!widget.showFavoritesOnly)
+            IconButton(
+              icon: const Icon(Icons.favorite),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const PrayersScreen(
+                      showFavoritesOnly: true,
+                    ),
+                  ),
+                );
+              },
+            ),
         ],
       ),
       body: Column(
@@ -80,6 +89,7 @@ class _PrayersScreenState extends State<PrayersScreen> {
                   .collection('prayers')
                   .where('title', isGreaterThanOrEqualTo: _searchQuery)
                   .where('title', isLessThanOrEqualTo: '${_searchQuery}z')
+                  .where('isFavorite', isEqualTo: widget.showFavoritesOnly ? true : null)
                   .orderBy('title')
                   .snapshots(),
               builder: (context, snapshot) {
@@ -130,9 +140,14 @@ class _PrayersScreenState extends State<PrayersScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: widget.showFavoritesOnly ? null : FloatingActionButton(
         onPressed: () {
-          // TODO: Add new prayer
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const PrayerDetailScreen(isNew: true),
+            ),
+          );
         },
         child: const Icon(Icons.add),
       ),

@@ -4,7 +4,8 @@ import '../models/hymn.dart';
 import 'hymn_detail_screen.dart';
 
 class HymnsScreen extends StatefulWidget {
-  const HymnsScreen({super.key});
+  final bool showFavoritesOnly;
+  const HymnsScreen({super.key, this.showFavoritesOnly = false});
 
   @override
   State<HymnsScreen> createState() => _HymnsScreenState();
@@ -18,7 +19,7 @@ class _HymnsScreenState extends State<HymnsScreen> {
     try {
       await FirebaseFirestore.instance
           .collection('hymns')
-          .doc(hymn.firestoreId)
+          .doc(hymn.id)
           .update({'isFavorite': !(hymn.isFavorite ?? false)});
     } catch (e) {
       if (mounted) {
@@ -33,14 +34,22 @@ class _HymnsScreenState extends State<HymnsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Coptic Hymns'),
+        title: Text(widget.showFavoritesOnly ? 'Favorite Hymns' : 'Coptic Hymns'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.favorite),
-            onPressed: () {
-              // TODO: Navigate to favorites
-            },
-          ),
+          if (!widget.showFavoritesOnly)
+            IconButton(
+              icon: const Icon(Icons.favorite),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const HymnsScreen(
+                      showFavoritesOnly: true,
+                    ),
+                  ),
+                );
+              },
+            ),
         ],
       ),
       body: Column(
@@ -80,6 +89,7 @@ class _HymnsScreenState extends State<HymnsScreen> {
                   .collection('hymns')
                   .where('title', isGreaterThanOrEqualTo: _searchQuery)
                   .where('title', isLessThanOrEqualTo: '${_searchQuery}z')
+                  .where('isFavorite', isEqualTo: widget.showFavoritesOnly ? true : null)
                   .orderBy('title')
                   .snapshots(),
               builder: (context, snapshot) {
@@ -131,9 +141,14 @@ class _HymnsScreenState extends State<HymnsScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: widget.showFavoritesOnly ? null : FloatingActionButton(
         onPressed: () {
-          // TODO: Add new hymn
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const HymnDetailScreen(isNew: true),
+            ),
+          );
         },
         child: const Icon(Icons.add),
       ),

@@ -4,7 +4,8 @@ import '../models/saint.dart';
 import 'saint_detail_screen.dart';
 
 class SaintsScreen extends StatefulWidget {
-  const SaintsScreen({super.key});
+  final bool showFavoritesOnly;
+  const SaintsScreen({super.key, this.showFavoritesOnly = false});
 
   @override
   State<SaintsScreen> createState() => _SaintsScreenState();
@@ -33,14 +34,22 @@ class _SaintsScreenState extends State<SaintsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Coptic Saints'),
+        title: Text(widget.showFavoritesOnly ? 'Favorite Saints' : 'Coptic Saints'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.favorite),
-            onPressed: () {
-              // TODO: Navigate to favorites
-            },
-          ),
+          if (!widget.showFavoritesOnly)
+            IconButton(
+              icon: const Icon(Icons.favorite),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SaintsScreen(
+                      showFavoritesOnly: true,
+                    ),
+                  ),
+                );
+              },
+            ),
         ],
       ),
       body: Column(
@@ -80,6 +89,7 @@ class _SaintsScreenState extends State<SaintsScreen> {
                   .collection('saints')
                   .where('name', isGreaterThanOrEqualTo: _searchQuery)
                   .where('name', isLessThanOrEqualTo: '${_searchQuery}z')
+                  .where('isFavorite', isEqualTo: widget.showFavoritesOnly ? true : null)
                   .orderBy('name')
                   .snapshots(),
               builder: (context, snapshot) {
@@ -134,9 +144,14 @@ class _SaintsScreenState extends State<SaintsScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: widget.showFavoritesOnly ? null : FloatingActionButton(
         onPressed: () {
-          // TODO: Add new saint
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const SaintDetailScreen(isNew: true),
+            ),
+          );
         },
         child: const Icon(Icons.add),
       ),

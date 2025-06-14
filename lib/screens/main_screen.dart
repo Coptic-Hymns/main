@@ -34,7 +34,7 @@ class _MainScreenState extends State<MainScreen> {
             _selectedIndex = index;
           });
         },
-        destinations: [
+        destinations: const [
           NavigationDestination(icon: Icon(Icons.music_note), label: 'Hymns'),
           NavigationDestination(icon: Icon(Icons.book), label: 'Prayers'),
           NavigationDestination(icon: Icon(Icons.person), label: 'Saints'),

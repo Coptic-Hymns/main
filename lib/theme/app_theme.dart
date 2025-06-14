@@ -11,16 +11,14 @@ class AppTheme {
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
-      colorScheme: ColorScheme.light(
+      colorScheme: const ColorScheme.light(
         primary: primaryColor,
         secondary: secondaryColor,
         surface: backgroundColor,
-        background: backgroundColor,
         error: Colors.red,
         onPrimary: Colors.white,
         onSecondary: textColor,
         onSurface: textColor,
-        onBackground: textColor,
         onError: Colors.white,
       ),
       appBarTheme: const AppBarTheme(
