@@ -15,7 +15,7 @@ extension GetIsarHymnCollection on Isar {
 
 const IsarHymnSchema = CollectionSchema(
   name: r'IsarHymn',
-  id: 383197748125097248,
+  id: 383197748125097216,
   properties: {
     r'audioUrl': PropertySchema(
       id: 0,

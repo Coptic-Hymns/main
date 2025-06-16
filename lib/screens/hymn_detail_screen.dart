@@ -60,7 +60,7 @@ class _HymnDetailScreenState extends State<HymnDetailScreen> {
     try {
       await FirebaseFirestore.instance
           .collection('hymns')
-          .doc(widget.hymn!.id)
+          .doc(widget.hymn!.firestoreId ?? '')
           .update({'isFavorite': !_isFavorite});
       setState(() {
         _isFavorite = !_isFavorite;
@@ -88,7 +88,8 @@ class _HymnDetailScreenState extends State<HymnDetailScreen> {
       };
 
       if (widget.isNew) {
-        final docRef = await FirebaseFirestore.instance.collection('hymns').add(hymnData);
+        final docRef =
+            await FirebaseFirestore.instance.collection('hymns').add(hymnData);
         if (_audioUrl != null) {
           // Update the audio URL with the new document ID
           await docRef.update({
@@ -98,7 +99,7 @@ class _HymnDetailScreenState extends State<HymnDetailScreen> {
       } else {
         await FirebaseFirestore.instance
             .collection('hymns')
-            .doc(widget.hymn!.id)
+            .doc(widget.hymn!.firestoreId ?? '')
             .update(hymnData);
       }
 
@@ -120,7 +121,9 @@ class _HymnDetailScreenState extends State<HymnDetailScreen> {
     });
 
     try {
-      final documentId = widget.isNew ? 'temp_${DateTime.now().millisecondsSinceEpoch}' : widget.hymn!.id ?? '';
+      final documentId = widget.isNew
+          ? 'temp_${DateTime.now().millisecondsSinceEpoch}'
+          : widget.hymn!.firestoreId ?? '';
       final newAudioUrl = await FileUploadService.pickAndUploadFile(
         collection: 'hymns',
         documentId: documentId,
@@ -218,14 +221,16 @@ class _HymnDetailScreenState extends State<HymnDetailScreen> {
                 const SizedBox(height: 8),
                 Center(
                   child: TextButton.icon(
-                    onPressed: _isUploading ? null : () async {
-                      if (_audioUrl != null) {
-                        await FileUploadService.deleteFile(_audioUrl!);
-                        setState(() {
-                          _audioUrl = null;
-                        });
-                      }
-                    },
+                    onPressed: _isUploading
+                        ? null
+                        : () async {
+                            if (_audioUrl != null) {
+                              await FileUploadService.deleteFile(_audioUrl!);
+                              setState(() {
+                                _audioUrl = null;
+                              });
+                            }
+                          },
                     icon: const Icon(Icons.delete),
                     label: const Text('Remove Audio'),
                   ),

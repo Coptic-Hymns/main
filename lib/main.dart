@@ -391,7 +391,7 @@ class _MainHomeState extends State<MainHome> {
 
   Future<void> _initIsar() async {
     if (kIsWeb) return; // Skip Isar initialization for web
-    
+
     final dir = await getApplicationDocumentsDirectory();
     _isar = await Isar.open(
       [IsarHymnSchema],
@@ -430,7 +430,7 @@ class _MainHomeState extends State<MainHome> {
       snapshot,
     ) {
       if (kIsWeb) return; // Skip caching for web
-      
+
       _isar?.writeTxn(() async {
         final currentFirestoreIds = snapshot.docs.map((e) => e.id).toSet();
         final existingIsarHymns = await _isar!.isarHymns.where().findAll();
@@ -463,9 +463,10 @@ class _MainHomeState extends State<MainHome> {
 
   Future<void> _cacheHymnsFromFirestore() async {
     if (kIsWeb || _isar == null) return; // Skip caching for web
-    
+
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('hymns').get();
+      final snapshot =
+          await FirebaseFirestore.instance.collection('hymns').get();
       await _isar!.writeTxn(() async {
         await _isar!.isarHymns.clear();
         for (final doc in snapshot.docs) {
@@ -652,11 +653,10 @@ class _HymnDisplayState extends State<_HymnDisplay> {
         }
       });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Audio error: $e')));
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Audio error: $e')));
     }
   }
 
@@ -1487,7 +1487,8 @@ class _FeastDialogState extends State<_FeastDialog> {
               children: [
                 Text(
                   widget.feast == null ? 'Add Feast' : 'Edit Feast',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 18),
                 ),
                 const SizedBox(height: 16),
                 Row(
@@ -1811,7 +1812,13 @@ class _HymnDialogState extends State<_HymnDialog> {
     showDialog(
       context: context,
       builder: (context) => _PhraseBlockDialog(
-        block: const {'en': '', 'ar': '', 'cop': '', 'cop-en': '', 'cop-ar': ''},
+        block: const {
+          'en': '',
+          'ar': '',
+          'cop': '',
+          'cop-en': '',
+          'cop-ar': ''
+        },
         onSave: (block) {
           setState(() => _blocks.add(block));
         },
@@ -1872,7 +1879,8 @@ class _HymnDialogState extends State<_HymnDialog> {
               children: [
                 Text(
                   widget.hymn == null ? 'Add Hymn' : 'Edit Hymn',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 18),
                 ),
                 const SizedBox(height: 16),
                 ..._titleCtrls.entries.map(

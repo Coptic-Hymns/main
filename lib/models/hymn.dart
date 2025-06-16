@@ -1,19 +1,12 @@
-import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
-import 'package:isar/isar.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' hide Index;
+import 'package:flutter/foundation.dart';
+import '../models/storage.dart';
 
-part 'hymn.g.dart';
-
-@collection
 class Hymn {
-  @Id()
-  String id = '';
-
-  @Index(type: IndexType.value)
+  int? id;
+  String? firestoreId;
   String? title;
-
-  @Index(type: IndexType.value)
   String? category;
-
   String? lyrics;
   String? audioUrl;
   String? notes;
@@ -23,7 +16,8 @@ class Hymn {
   DateTime? updatedAt;
 
   Hymn({
-    required this.id,
+    this.id,
+    this.firestoreId,
     this.title,
     this.category,
     this.lyrics,
@@ -35,10 +29,10 @@ class Hymn {
     this.updatedAt,
   });
 
-  factory Hymn.fromFirestore(firestore.DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+  static Hymn fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
     return Hymn(
-      id: doc.id,
+      firestoreId: doc.id,
       title: data['title'],
       category: data['category'],
       lyrics: data['lyrics'],
@@ -46,8 +40,8 @@ class Hymn {
       notes: data['notes'],
       language: data['language'],
       isFavorite: data['isFavorite'] ?? false,
-      createdAt: (data['createdAt'] as firestore.Timestamp?)?.toDate(),
-      updatedAt: (data['updatedAt'] as firestore.Timestamp?)?.toDate(),
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -63,5 +57,39 @@ class Hymn {
       'createdAt': createdAt,
       'updatedAt': updatedAt,
     };
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'firestoreId': firestoreId,
+      'title': title,
+      'category': category,
+      'lyrics': lyrics,
+      'audioUrl': audioUrl,
+      'notes': notes,
+      'language': language,
+      'isFavorite': isFavorite,
+      'createdAt': createdAt?.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
+    };
+  }
+
+  static Hymn fromJson(Map<String, dynamic> json) {
+    return Hymn(
+      id: json['id'],
+      firestoreId: json['firestoreId'],
+      title: json['title'],
+      category: json['category'],
+      lyrics: json['lyrics'],
+      audioUrl: json['audioUrl'],
+      notes: json['notes'],
+      language: json['language'],
+      isFavorite: json['isFavorite'],
+      createdAt:
+          json['createdAt'] != null ? DateTime.parse(json['createdAt']) : null,
+      updatedAt:
+          json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
+    );
   }
 }

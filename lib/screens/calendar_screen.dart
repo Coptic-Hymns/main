@@ -26,7 +26,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   Future<void> _loadEvents() async {
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('events').get();
+      final snapshot =
+          await FirebaseFirestore.instance.collection('events').get();
       final events = <DateTime, List<Map<String, dynamic>>>{};
 
       for (var doc in snapshot.docs) {
@@ -81,7 +82,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Calendar'),
+        title: const Text(
+          'Calendar',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         actions: [
           IconButton(
             icon: Icon(isDarkMode ? Icons.light_mode : Icons.dark_mode),
@@ -187,4 +191,4 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
     );
   }
-} 
+}

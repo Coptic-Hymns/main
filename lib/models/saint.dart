@@ -1,22 +1,12 @@
-import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
-import 'package:isar/isar.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+import '../models/storage.dart';
 
-part 'saint.g.dart';
-
-@collection
 class Saint {
-  @Index(type: IndexType.value)
-  String? id;
-
-  @Index(type: IndexType.value)
+  int? id;
   String? firestoreId;
-
-  @Index(type: IndexType.value)
   String? name;
-
-  @Index(type: IndexType.value)
   String? feastDay;
-
   String? biography;
   String? imageUrl;
   String? category;
@@ -39,10 +29,9 @@ class Saint {
     this.updatedAt,
   });
 
-  factory Saint.fromFirestore(firestore.DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+  static Saint fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
     return Saint(
-      id: doc.id,
       firestoreId: doc.id,
       name: data['name'],
       feastDay: data['feastDay'],
@@ -51,8 +40,8 @@ class Saint {
       category: data['category'],
       language: data['language'],
       isFavorite: data['isFavorite'] ?? false,
-      createdAt: (data['createdAt'] as firestore.Timestamp?)?.toDate(),
-      updatedAt: (data['updatedAt'] as firestore.Timestamp?)?.toDate(),
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -68,5 +57,39 @@ class Saint {
       'createdAt': createdAt,
       'updatedAt': updatedAt,
     };
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'firestoreId': firestoreId,
+      'name': name,
+      'feastDay': feastDay,
+      'biography': biography,
+      'imageUrl': imageUrl,
+      'category': category,
+      'language': language,
+      'isFavorite': isFavorite,
+      'createdAt': createdAt?.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
+    };
+  }
+
+  static Saint fromJson(Map<String, dynamic> json) {
+    return Saint(
+      id: json['id'],
+      firestoreId: json['firestoreId'],
+      name: json['name'],
+      feastDay: json['feastDay'],
+      biography: json['biography'],
+      imageUrl: json['imageUrl'],
+      category: json['category'],
+      language: json['language'],
+      isFavorite: json['isFavorite'],
+      createdAt:
+          json['createdAt'] != null ? DateTime.parse(json['createdAt']) : null,
+      updatedAt:
+          json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
+    );
   }
 }

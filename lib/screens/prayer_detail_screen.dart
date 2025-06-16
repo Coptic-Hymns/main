@@ -31,12 +31,11 @@ class _PrayerDetailScreenState extends State<PrayerDetailScreen> {
   void initState() {
     super.initState();
     if (widget.prayer != null) {
-      _isFavorite = widget.prayer!.isFavorite ?? false;
       _titleController.text = widget.prayer!.title ?? '';
       _categoryController.text = widget.prayer!.category ?? '';
       _contentController.text = widget.prayer!.content ?? '';
       _notesController.text = widget.prayer!.notes ?? '';
-      _documentUrl = widget.prayer!.documentUrl;
+      _isFavorite = widget.prayer!.isFavorite ?? false;
     }
   }
 
@@ -77,12 +76,13 @@ class _PrayerDetailScreenState extends State<PrayerDetailScreen> {
         'category': _categoryController.text,
         'content': _contentController.text,
         'notes': _notesController.text,
-        'documentUrl': _documentUrl,
         'isFavorite': false,
       };
 
       if (widget.isNew) {
-        final docRef = await FirebaseFirestore.instance.collection('prayers').add(prayerData);
+        final docRef = await FirebaseFirestore.instance
+            .collection('prayers')
+            .add(prayerData);
         if (_documentUrl != null) {
           // Update the document URL with the new document ID
           await docRef.update({
@@ -114,7 +114,9 @@ class _PrayerDetailScreenState extends State<PrayerDetailScreen> {
     });
 
     try {
-      final documentId = widget.isNew ? 'temp_${DateTime.now().millisecondsSinceEpoch}' : widget.prayer!.firestoreId ?? '';
+      final documentId = widget.isNew
+          ? 'temp_${DateTime.now().millisecondsSinceEpoch}'
+          : widget.prayer!.firestoreId ?? '';
       final newDocumentUrl = await FileUploadService.pickAndUploadFile(
         collection: 'prayers',
         documentId: documentId,
@@ -212,14 +214,16 @@ class _PrayerDetailScreenState extends State<PrayerDetailScreen> {
                 const SizedBox(height: 8),
                 Center(
                   child: TextButton.icon(
-                    onPressed: _isUploading ? null : () async {
-                      if (_documentUrl != null) {
-                        await FileUploadService.deleteFile(_documentUrl!);
-                        setState(() {
-                          _documentUrl = null;
-                        });
-                      }
-                    },
+                    onPressed: _isUploading
+                        ? null
+                        : () async {
+                            if (_documentUrl != null) {
+                              await FileUploadService.deleteFile(_documentUrl!);
+                              setState(() {
+                                _documentUrl = null;
+                              });
+                            }
+                          },
                     icon: const Icon(Icons.delete),
                     label: const Text('Remove Document'),
                   ),

@@ -19,7 +19,7 @@ class _HymnsScreenState extends State<HymnsScreen> {
     try {
       await FirebaseFirestore.instance
           .collection('hymns')
-          .doc(hymn.id)
+          .doc(hymn.firestoreId)
           .update({'isFavorite': !(hymn.isFavorite ?? false)});
     } catch (e) {
       if (mounted) {
@@ -34,7 +34,8 @@ class _HymnsScreenState extends State<HymnsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.showFavoritesOnly ? 'Favorite Hymns' : 'Coptic Hymns'),
+        title:
+            Text(widget.showFavoritesOnly ? 'Favorite Hymns' : 'Coptic Hymns'),
         actions: [
           if (!widget.showFavoritesOnly)
             IconButton(
@@ -89,7 +90,8 @@ class _HymnsScreenState extends State<HymnsScreen> {
                   .collection('hymns')
                   .where('title', isGreaterThanOrEqualTo: _searchQuery)
                   .where('title', isLessThanOrEqualTo: '${_searchQuery}z')
-                  .where('isFavorite', isEqualTo: widget.showFavoritesOnly ? true : null)
+                  .where('isFavorite',
+                      isEqualTo: widget.showFavoritesOnly ? true : null)
                   .orderBy('title')
                   .snapshots(),
               builder: (context, snapshot) {
@@ -141,17 +143,19 @@ class _HymnsScreenState extends State<HymnsScreen> {
           ),
         ],
       ),
-      floatingActionButton: widget.showFavoritesOnly ? null : FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const HymnDetailScreen(isNew: true),
+      floatingActionButton: widget.showFavoritesOnly
+          ? null
+          : FloatingActionButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const HymnDetailScreen(isNew: true),
+                  ),
+                );
+              },
+              child: const Icon(Icons.add),
             ),
-          );
-        },
-        child: const Icon(Icons.add),
-      ),
     );
   }
 

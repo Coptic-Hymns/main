@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.2.3 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -41,7 +41,7 @@ dependencies:
   firebase_storage: ^11.5.6
   cloud_functions: ^4.6.8
   google_sign_in: ^6.2.1
-  sign_in_with_apple: ^6.1.0
+  sign_in_with_apple: ^5.0.0
   flutter_local_notifications: ^16.2.0
   isar: ^3.1.0+1
   isar_flutter_libs: ^3.1.0+1
@@ -65,6 +65,7 @@ dependencies:
   path: ^1.8.3
   flutter_localizations:
     sdk: flutter
+  uuid: ^4.2.1
 
 dev_dependencies:
   flutter_test:
@@ -75,8 +76,9 @@ dev_dependencies:
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^2.0.0
+  flutter_lints: ^3.0.1
   build_runner: ^2.4.7
+  json_serializable: ^6.7.1
   isar_generator: ^3.1.0+1
   analyzer: ^5.13.0
 
