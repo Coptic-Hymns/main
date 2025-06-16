@@ -70,17 +70,39 @@ Future<void> _showLocalNotification(RemoteMessage message) async {
 }
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  await SharedPreferences.getInstance(); // Initialize SharedPreferences
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
-      ],
-      child: const MyApp(),
-    ),
-  );
+  try {
+    WidgetsFlutterBinding.ensureInitialized();
+    log('Initializing Firebase...');
+    await Firebase.initializeApp();
+    log('Firebase initialized successfully');
+    
+    log('Initializing SharedPreferences...');
+    await SharedPreferences.getInstance();
+    log('SharedPreferences initialized successfully');
+    
+    log('Starting app...');
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ],
+        child: const MyApp(),
+      ),
+    );
+  } catch (e, stackTrace) {
+    log('Error during initialization: $e');
+    log('Stack trace: $stackTrace');
+    // Show error UI instead of crashing
+    runApp(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Text('Error initializing app: $e'),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -399,9 +421,11 @@ class _MainHomeState extends State<MainHome> {
       inspector: true,
       maxSizeMiB: 512,
     );
-    setState(() {
-      _isarStream = _isar!.isarHymns.where().watch(fireImmediately: true);
-    });
+    if (mounted) {
+      setState(() {
+        _isarStream = _isar?.isarHymns.where().watch(fireImmediately: true);
+      });
+    }
     _cacheHymnsFromFirestore();
   }
 
@@ -417,44 +441,48 @@ class _MainHomeState extends State<MainHome> {
         .limit(1)
         .get(const GetOptions(source: Source.serverAndCache))
         .then((snapshot) {
-      setState(() => _offline = !snapshot.metadata.isFromCache);
-      if (!snapshot.metadata.isFromCache) {
-        _cacheHymnsFromFirestore();
+      if (mounted) {
+        setState(() => _offline = !snapshot.metadata.isFromCache);
+        if (!snapshot.metadata.isFromCache) {
+          _cacheHymnsFromFirestore();
+        }
       }
     }).catchError((_) {
-      setState(() => _offline = true);
+      if (mounted) {
+        setState(() => _offline = true);
+      }
       return null;
     });
 
     FirebaseFirestore.instance.collection('hymns').snapshots().listen((
       snapshot,
     ) {
-      if (kIsWeb) return; // Skip caching for web
+      if (kIsWeb || _isar == null) return; // Skip caching for web
 
       _isar?.writeTxn(() async {
         final currentFirestoreIds = snapshot.docs.map((e) => e.id).toSet();
-        final existingIsarHymns = await _isar!.isarHymns.where().findAll();
+        final existingIsarHymns = await _isar?.isarHymns.where().findAll() ?? [];
 
         for (final isarHymn in existingIsarHymns) {
           if (!currentFirestoreIds.contains(isarHymn.firestoreId)) {
-            await _isar!.isarHymns.delete(isarHymn.id);
+            await _isar?.isarHymns.delete(isarHymn.id);
           }
         }
 
         for (final doc in snapshot.docs) {
-          final existingIsarHymn = await _isar!.isarHymns
+          final existingIsarHymn = await _isar?.isarHymns
               .filter()
               .firestoreIdEqualTo(doc.id)
               .findFirst();
           final newIsarHymn = IsarHymn.fromFirestore(doc.id, doc.data());
           if (existingIsarHymn == null) {
-            await _isar!.isarHymns.put(newIsarHymn);
+            await _isar?.isarHymns.put(newIsarHymn);
           } else if (existingIsarHymn.updatedAt?.isBefore(
                 newIsarHymn.updatedAt ?? DateTime.now(),
               ) ??
               true) {
             newIsarHymn.id = existingIsarHymn.id;
-            await _isar!.isarHymns.put(newIsarHymn);
+            await _isar?.isarHymns.put(newIsarHymn);
           }
         }
       });
@@ -467,10 +495,10 @@ class _MainHomeState extends State<MainHome> {
     try {
       final snapshot =
           await FirebaseFirestore.instance.collection('hymns').get();
-      await _isar!.writeTxn(() async {
-        await _isar!.isarHymns.clear();
+      await _isar?.writeTxn(() async {
+        await _isar?.isarHymns.clear();
         for (final doc in snapshot.docs) {
-          await _isar!.isarHymns.put(
+          await _isar?.isarHymns.put(
             IsarHymn.fromFirestore(doc.id, doc.data()),
           );
         }

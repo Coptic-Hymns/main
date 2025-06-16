@@ -3,7 +3,6 @@ import 'package:isar/isar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
-import 'dart:io';
 
 abstract class Storage {
   Future<void> init();
